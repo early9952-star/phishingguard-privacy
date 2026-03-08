@@ -4,37 +4,203 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>음성 타이핑</title>
+    <!-- QR 스캐너 라이브러리 -->
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-user-select: none; }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, '맑은 고딕', 'Malgun Gothic', sans-serif;
             background: #0f0f1a;
             color: #eee;
             height: 100vh;
+            height: 100dvh;
             display: flex;
             flex-direction: column;
             overflow: hidden;
         }
 
-        /* 상단 */
+        /* ========== 화면 전환 ========== */
+        .screen { display: none; flex-direction: column; height: 100%; }
+        .screen.active { display: flex; }
+
+        /* ========== 공통 상단바 ========== */
         .top-bar {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 12px 16px;
+            padding: 14px 16px;
             background: #16162a;
+            min-height: 56px;
         }
-        .top-bar h1 { font-size: 16px; font-weight: 700; }
-        .conn-status {
-            font-size: 11px;
-            padding: 4px 12px;
-            border-radius: 20px;
+        .top-bar h1 { font-size: 20px; font-weight: 700; }
+        .top-bar-btn {
+            background: none; border: none; color: #aaa;
+            font-size: 24px; cursor: pointer; padding: 4px 8px;
         }
-        .conn-status.on { background: #0a3d2a; color: #4ade80; }
-        .conn-status.off { background: #3d0a0a; color: #f87171; }
 
-        /* 미리보기 */
+        /* ========== PC 목록 화면 ========== */
+        .pc-list-screen { background: #0f0f1a; }
+
+        .pc-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+        }
+
+        .pc-card {
+            background: #1e1e3a;
+            border: 2px solid #2a2a4a;
+            border-radius: 16px;
+            padding: 18px;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .pc-card:active { transform: scale(0.98); }
+        .pc-card.connected { border-color: #22c55e; }
+        .pc-card .pc-icon {
+            width: 48px; height: 48px;
+            background: #2a2a5a;
+            border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 24px;
+        }
+        .pc-card .pc-info { flex: 1; }
+        .pc-card .pc-name { font-size: 18px; font-weight: 700; }
+        .pc-card .pc-ip { font-size: 14px; color: #888; margin-top: 4px; }
+        .pc-card .pc-status {
+            width: 12px; height: 12px;
+            border-radius: 50%;
+            background: #666;
+        }
+        .pc-card.connected .pc-status { background: #22c55e; }
+        .pc-card .pc-delete {
+            background: none; border: none; color: #f87171;
+            font-size: 20px; padding: 8px; cursor: pointer;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+        .empty-state .icon { font-size: 64px; margin-bottom: 16px; }
+        .empty-state .title { font-size: 20px; font-weight: 700; color: #999; margin-bottom: 8px; }
+        .empty-state .desc { font-size: 16px; line-height: 1.6; }
+
+        /* 하단 버튼들 */
+        .pc-actions {
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .action-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 18px;
+            border: none;
+            border-radius: 14px;
+            font-size: 18px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        .action-btn:active { transform: scale(0.97); }
+        .btn-scan { background: #e94560; color: white; }
+        .btn-manual { background: #1e3a5f; color: #7dd3fc; }
+        .btn-share { background: #2a4a2a; color: #86efac; }
+
+        /* ========== QR 스캔 화면 ========== */
+        .qr-screen { background: #000; }
+        #qr-reader {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #qr-reader video { width: 100%; max-height: 70vh; object-fit: cover; }
+
+        /* ========== 수동 입력 모달 ========== */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: #1e1e3a;
+            border-radius: 20px;
+            padding: 28px;
+            width: 100%;
+            max-width: 400px;
+        }
+        .modal h2 { font-size: 20px; margin-bottom: 20px; text-align: center; }
+        .modal input {
+            width: 100%;
+            padding: 16px;
+            border: 2px solid #333;
+            border-radius: 12px;
+            background: #0f0f1a;
+            color: #eee;
+            font-size: 18px;
+            margin-bottom: 12px;
+            text-align: center;
+        }
+        .modal input::placeholder { color: #555; }
+        .modal input:focus { outline: none; border-color: #e94560; }
+        .modal .modal-btns {
+            display: flex; gap: 10px; margin-top: 8px;
+        }
+        .modal .modal-btns button {
+            flex: 1; padding: 14px;
+            border: none; border-radius: 12px;
+            font-size: 16px; font-weight: 700;
+            cursor: pointer;
+        }
+        .modal .btn-cancel { background: #333; color: #aaa; }
+        .modal .btn-confirm { background: #e94560; color: white; }
+
+        /* ========== 음성 입력 화면 ========== */
+        .voice-screen { background: #0f0f1a; }
+
+        .conn-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            background: #0a3d2a;
+            font-size: 15px;
+            color: #4ade80;
+        }
+        .conn-bar.disconnected { background: #3d0a0a; color: #f87171; }
+        .conn-bar .dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #4ade80;
+        }
+        .conn-bar.disconnected .dot { background: #f87171; }
+        .conn-bar .pc-switch {
+            margin-left: auto;
+            background: rgba(255,255,255,0.1);
+            border: none; color: inherit;
+            padding: 6px 14px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+
         .preview {
             flex: 1;
             margin: 12px;
@@ -42,37 +208,48 @@
             background: #16162a;
             border-radius: 16px;
             border: 2px solid #222244;
-            font-size: 20px;
+            font-size: 22px;
             line-height: 1.6;
             overflow-y: auto;
             color: #ddd;
             min-height: 0;
         }
-        .preview .listening-text {
-            color: #f59e0b;
-            opacity: 0.7;
+        .preview .listening-text { color: #f59e0b; opacity: 0.7; }
+        .preview .empty { color: #555; font-size: 18px; }
+
+        .settings {
+            display: flex;
+            gap: 12px;
+            padding: 0 12px 8px;
+            align-items: center;
+            justify-content: center;
         }
-        .preview .empty {
-            color: #444;
-            font-size: 16px;
+        .settings label {
+            font-size: 15px;
+            color: #888;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .settings input[type="checkbox"] {
+            width: 20px; height: 20px;
+            accent-color: #e94560;
         }
 
-        /* 마이크 버튼 영역 */
         .mic-area {
             display: flex;
             flex-direction: column;
             align-items: center;
-            padding: 20px 0 12px;
+            padding: 16px 0 10px;
         }
-
         .mic-btn {
-            width: 120px;
-            height: 120px;
+            width: 100px;
+            height: 100px;
             border-radius: 50%;
             border: none;
             background: #e94560;
             color: white;
-            font-size: 48px;
+            font-size: 44px;
             cursor: pointer;
             transition: all 0.2s;
             display: flex;
@@ -90,27 +267,25 @@
             0%, 100% { box-shadow: 0 0 0 8px rgba(34,197,94,0.2), 0 0 0 16px rgba(34,197,94,0.1); }
             50% { box-shadow: 0 0 0 12px rgba(34,197,94,0.3), 0 0 0 24px rgba(34,197,94,0.1); }
         }
-
         .mic-label {
-            margin-top: 12px;
-            font-size: 14px;
+            margin-top: 10px;
+            font-size: 16px;
             color: #888;
             font-weight: 600;
         }
 
-        /* 하단 보조 버튼 */
         .bottom-bar {
             display: flex;
             gap: 8px;
-            padding: 8px 12px 20px;
+            padding: 8px 12px 6px;
         }
         .bottom-bar button {
             flex: 1;
-            padding: 14px;
+            padding: 16px;
             border: none;
             border-radius: 12px;
-            font-size: 15px;
-            font-weight: 600;
+            font-size: 17px;
+            font-weight: 700;
             cursor: pointer;
             transition: transform 0.1s;
         }
@@ -119,39 +294,117 @@
         .btn-backspace { background: #333; color: #ccc; }
         .btn-clear { background: #2a1a1a; color: #f87171; }
 
-        /* 설정 */
-        .settings {
-            display: flex;
-            gap: 8px;
-            padding: 0 12px 8px;
-            align-items: center;
-            justify-content: center;
+        /* ========== 쿠팡 광고 영역 ========== */
+        .ad-banner {
+            padding: 8px 12px 12px;
+            text-align: center;
         }
-        .settings label {
-            font-size: 12px;
-            color: #666;
+        .ad-banner a {
+            display: block;
+            background: linear-gradient(135deg, #1a3a5f, #2a1a4f);
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 12px;
+            text-decoration: none;
+            color: #ccc;
+            font-size: 14px;
+        }
+        .ad-banner a:active { opacity: 0.8; }
+        .ad-banner .ad-title { font-weight: 700; color: #f59e0b; font-size: 15px; }
+        .ad-banner .ad-label { font-size: 10px; color: #555; margin-top: 4px; }
+
+        /* ========== 공유 모달 ========== */
+        .share-options {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 12px;
+        }
+        .share-btn {
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 12px;
+            padding: 16px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            text-align: left;
         }
-        .settings input[type="checkbox"] {
-            accent-color: #e94560;
+        .share-btn .share-icon { font-size: 24px; }
+        .share-kakao { background: #FEE500; color: #3C1E1E; }
+        .share-copy { background: #2a2a4a; color: #ccc; }
+        .share-sms { background: #1a3a2a; color: #86efac; }
+
+        .copy-success {
+            background: #0a3d2a;
+            color: #4ade80;
+            padding: 8px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 14px;
+            margin-top: 8px;
+            display: none;
         }
     </style>
 </head>
 <body>
+
+<!-- ==================== 화면 1: PC 목록 ==================== -->
+<div id="pcListScreen" class="screen pc-list-screen active">
     <div class="top-bar">
         <h1>음성 타이핑</h1>
-        <span class="conn-status off" id="connStatus">연결 중...</span>
+    </div>
+
+    <div class="pc-list" id="pcList">
+        <!-- PC 카드들이 여기에 동적 생성 -->
+    </div>
+
+    <div class="pc-actions">
+        <button class="action-btn btn-scan" onclick="startQrScan()">
+            <span>📷</span> QR코드로 PC 추가
+        </button>
+        <button class="action-btn btn-manual" onclick="showManualInput()">
+            <span>⌨️</span> IP 직접 입력
+        </button>
+        <button class="action-btn btn-share" onclick="showShareModal()">
+            <span>📲</span> PC에 프로그램 설치하기
+        </button>
+    </div>
+</div>
+
+<!-- ==================== 화면 2: QR 스캔 ==================== -->
+<div id="qrScreen" class="screen qr-screen">
+    <div class="top-bar">
+        <button class="top-bar-btn" onclick="stopQrScan()">✕</button>
+        <h1>QR 스캔</h1>
+        <div style="width:40px"></div>
+    </div>
+    <div id="qr-reader"></div>
+</div>
+
+<!-- ==================== 화면 3: 음성 입력 ==================== -->
+<div id="voiceScreen" class="screen voice-screen">
+    <div class="top-bar">
+        <button class="top-bar-btn" onclick="goToList()">←</button>
+        <h1 id="voicePcName">PC</h1>
+        <div style="width:40px"></div>
+    </div>
+
+    <div class="conn-bar" id="connBar">
+        <span class="dot"></span>
+        <span id="connText">연결 중...</span>
+        <button class="pc-switch" onclick="goToList()">PC 전환</button>
     </div>
 
     <div class="preview" id="preview">
-        <span class="empty">마이크 버튼을 누르고 말하세요</span>
+        <span class="empty">🎤 마이크 버튼을 누르고<br>말해보세요</span>
     </div>
 
     <div class="settings">
-        <label><input type="checkbox" id="autoEnter"> 말 끝나면 자동 Enter</label>
-        <label><input type="checkbox" id="continuous"> 연속 인식</label>
+        <label><input type="checkbox" id="autoEnter"> 자동 Enter</label>
+        <label><input type="checkbox" id="continuous" checked> 연속 인식</label>
     </div>
 
     <div class="mic-area">
@@ -165,174 +418,549 @@
         <button class="btn-clear" onclick="doClear()">전체삭제</button>
     </div>
 
-    <script>
-        let ws = null;
-        let recognition = null;
-        let isRecording = false;
-        let lastSentText = '';
+    <!-- 쿠팡 파트너스 광고 -->
+    <div class="ad-banner" id="adBanner">
+        <a href="https://link.coupang.com/a/cmb0A0" target="_blank" rel="noopener" onclick="trackAdClick()">
+            <div class="ad-title">어르신을 위한 추천 상품</div>
+            <div>건강식품 · 돋보기 · 안마기 · 혈압계</div>
+            <div class="ad-label">쿠팡 파트너스 광고</div>
+        </a>
+    </div>
+</div>
 
-        // --- WebSocket ---
-        function connect() {
-            const wsUrl = `ws://${location.hostname}:8766`;
-            ws = new WebSocket(wsUrl);
-            ws.onopen = () => {
-                document.getElementById('connStatus').textContent = 'PC 연결됨';
-                document.getElementById('connStatus').className = 'conn-status on';
-                setInterval(() => {
-                    if (ws && ws.readyState === WebSocket.OPEN)
-                        ws.send(JSON.stringify({ action: 'ping' }));
-                }, 30000);
-            };
-            ws.onclose = () => {
-                document.getElementById('connStatus').textContent = '연결 끊김';
-                document.getElementById('connStatus').className = 'conn-status off';
-                setTimeout(connect, 3000);
-            };
-            ws.onerror = () => ws.close();
+<!-- ==================== 수동 입력 모달 ==================== -->
+<div class="modal-overlay" id="manualModal">
+    <div class="modal">
+        <h2>PC 직접 연결</h2>
+        <input type="text" id="inputName" placeholder="PC 이름 (예: 거실 컴퓨터)" maxlength="20">
+        <input type="text" id="inputIp" placeholder="IP 주소 (예: 192.168.0.10)" inputmode="decimal">
+        <input type="number" id="inputPort" placeholder="포트 (기본: 8766)" value="8766">
+        <div class="modal-btns">
+            <button class="btn-cancel" onclick="hideManualInput()">취소</button>
+            <button class="btn-confirm" onclick="addPcManual()">연결</button>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== 설치 공유 모달 ==================== -->
+<div class="modal-overlay" id="shareModal">
+    <div class="modal">
+        <h2>📲 PC에 프로그램 설치</h2>
+        <p style="color:#aaa; font-size:15px; line-height:1.6; margin-bottom:12px;">
+            아래 링크를 PC를 사용하는 분에게<br>
+            카카오톡이나 문자로 보내주세요.<br>
+            링크를 열면 설치 파일을 받을 수 있어요.
+        </p>
+        <div class="share-options">
+            <button class="share-btn share-kakao" onclick="shareKakao()">
+                <span class="share-icon">💬</span> 카카오톡으로 보내기
+            </button>
+            <button class="share-btn share-sms" onclick="shareSms()">
+                <span class="share-icon">📩</span> 문자로 보내기
+            </button>
+            <button class="share-btn share-copy" onclick="copyLink()">
+                <span class="share-icon">📋</span> 링크 복사하기
+            </button>
+        </div>
+        <div class="copy-success" id="copySuccess">✅ 링크가 복사되었어요!</div>
+        <div class="modal-btns" style="margin-top:16px;">
+            <button class="btn-cancel" style="width:100%" onclick="hideShareModal()">닫기</button>
+        </div>
+
+        <!-- 연결된 PC가 있으면 보이는 옵션 -->
+        <div id="openOnPcSection" style="display:none; margin-top:16px; padding-top:16px; border-top:1px solid #333;">
+            <p style="color:#aaa; font-size:14px; margin-bottom:10px;">
+                또는 연결된 PC에서 바로 열기:
+            </p>
+            <button class="share-btn" style="background:#1a3a5f; color:#7dd3fc; width:100%;" onclick="openOnConnectedPc()">
+                <span class="share-icon">🖥️</span> 연결된 PC에서 설치페이지 열기
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ==================== 설정 ====================
+    const DOWNLOAD_URL = 'https://github.com/user/voice-typing/releases';  // TODO: 실제 다운로드 URL
+    const COUPANG_ADS = [
+        { title: '어르신 추천 건강식품', desc: '비타민 · 오메가3 · 홍삼', url: 'https://link.coupang.com/a/cmb0A0' },
+        { title: '편한 돋보기 안경', desc: '블루라이트 차단 · 가벼운 착용감', url: 'https://link.coupang.com/a/cmb0A0' },
+        { title: '시원한 안마기', desc: '목 · 어깨 · 허리 안마기', url: 'https://link.coupang.com/a/cmb0A0' },
+        { title: '가정용 혈압계', desc: '손목형 · 자동측정 · 큰 글씨', url: 'https://link.coupang.com/a/cmb0A0' },
+    ];
+
+    // ==================== PC 목록 관리 ====================
+    let pcList = JSON.parse(localStorage.getItem('voiceTyping_pcs') || '[]');
+    let currentPc = null;
+    let ws = null;
+    let recognition = null;
+    let isRecording = false;
+    let lastSentText = '';
+    let qrScanner = null;
+
+    function savePcList() {
+        localStorage.setItem('voiceTyping_pcs', JSON.stringify(pcList));
+    }
+
+    function renderPcList() {
+        const container = document.getElementById('pcList');
+
+        if (pcList.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <div class="icon">🖥️</div>
+                    <div class="title">연결된 PC가 없어요</div>
+                    <div class="desc">
+                        아래 버튼으로 PC를 추가해주세요.<br>
+                        PC에 프로그램이 설치되어 있어야 해요.
+                    </div>
+                </div>
+            `;
+            return;
         }
 
-        function send(data) {
-            if (ws && ws.readyState === WebSocket.OPEN)
-                ws.send(JSON.stringify(data));
+        container.innerHTML = pcList.map((pc, i) => `
+            <div class="pc-card ${pc.connected ? 'connected' : ''}" onclick="selectPc(${i})">
+                <div class="pc-icon">🖥️</div>
+                <div class="pc-info">
+                    <div class="pc-name">${escapeHtml(pc.name)}</div>
+                    <div class="pc-ip">${pc.ip}:${pc.wsPort}</div>
+                </div>
+                <div class="pc-status"></div>
+                <button class="pc-delete" onclick="event.stopPropagation(); deletePc(${i})">✕</button>
+            </div>
+        `).join('');
+    }
+
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    function addPc(name, ip, wsPort, httpPort) {
+        // 중복 체크
+        const exists = pcList.find(p => p.ip === ip && p.wsPort === wsPort);
+        if (exists) {
+            exists.name = name;
+            savePcList();
+            renderPcList();
+            selectPc(pcList.indexOf(exists));
+            return;
         }
 
-        // --- 음성 인식 ---
-        function initSpeech() {
-            const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!SR) {
-                document.getElementById('preview').innerHTML =
-                    '<span class="empty">이 브라우저는 음성인식을 지원하지 않습니다.<br>Chrome 브라우저를 사용해주세요.</span>';
-                return false;
+        pcList.push({
+            name: name || 'PC',
+            ip: ip,
+            wsPort: wsPort || 8766,
+            httpPort: httpPort || 8765,
+            connected: false
+        });
+        savePcList();
+        renderPcList();
+        selectPc(pcList.length - 1);
+    }
+
+    function deletePc(index) {
+        if (confirm(`"${pcList[index].name}" 을(를) 목록에서 삭제할까요?`)) {
+            pcList.splice(index, 1);
+            savePcList();
+            renderPcList();
+        }
+    }
+
+    function selectPc(index) {
+        currentPc = pcList[index];
+        document.getElementById('voicePcName').textContent = currentPc.name;
+        showScreen('voiceScreen');
+        connectWs();
+    }
+
+    // ==================== 화면 전환 ====================
+    function showScreen(screenId) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        document.getElementById(screenId).classList.add('active');
+    }
+
+    function goToList() {
+        stopMic();
+        disconnectWs();
+        showScreen('pcListScreen');
+        renderPcList();
+    }
+
+    // ==================== QR 스캔 ====================
+    function startQrScan() {
+        showScreen('qrScreen');
+
+        if (typeof Html5Qrcode === 'undefined') {
+            alert('QR 스캐너를 불러오지 못했어요.\nIP 직접 입력을 이용해주세요.');
+            showScreen('pcListScreen');
+            return;
+        }
+
+        qrScanner = new Html5Qrcode("qr-reader");
+        qrScanner.start(
+            { facingMode: "environment" },
+            { fps: 10, qrbox: { width: 250, height: 250 } },
+            (decodedText) => {
+                try {
+                    const data = JSON.parse(decodedText);
+                    if (data.ip && data.ws) {
+                        stopQrScan();
+                        addPc(data.name || 'PC', data.ip, data.ws, data.http);
+                    }
+                } catch(e) {
+                    console.log('QR 인식 실패:', decodedText);
+                }
+            },
+            () => {}
+        ).catch(err => {
+            console.error('카메라 오류:', err);
+            alert('카메라를 사용할 수 없어요.\n카메라 권한을 허용해주세요.');
+            showScreen('pcListScreen');
+        });
+    }
+
+    function stopQrScan() {
+        if (qrScanner) {
+            qrScanner.stop().catch(() => {});
+            qrScanner.clear();
+            qrScanner = null;
+        }
+        showScreen('pcListScreen');
+    }
+
+    // ==================== 수동 입력 ====================
+    function showManualInput() {
+        document.getElementById('manualModal').classList.add('active');
+        document.getElementById('inputIp').focus();
+    }
+
+    function hideManualInput() {
+        document.getElementById('manualModal').classList.remove('active');
+        document.getElementById('inputName').value = '';
+        document.getElementById('inputIp').value = '';
+        document.getElementById('inputPort').value = '8766';
+    }
+
+    function addPcManual() {
+        const name = document.getElementById('inputName').value.trim() || '내 PC';
+        const ip = document.getElementById('inputIp').value.trim();
+        const port = parseInt(document.getElementById('inputPort').value) || 8766;
+
+        if (!ip) {
+            alert('IP 주소를 입력해주세요.');
+            return;
+        }
+
+        hideManualInput();
+        addPc(name, ip, port, 8765);
+    }
+
+    // ==================== 설치 공유 ====================
+    function showShareModal() {
+        document.getElementById('shareModal').classList.add('active');
+        document.getElementById('copySuccess').style.display = 'none';
+
+        // 연결된 PC가 있으면 "PC에서 열기" 옵션 표시
+        const hasConnected = ws && ws.readyState === WebSocket.OPEN;
+        document.getElementById('openOnPcSection').style.display = hasConnected ? 'block' : 'none';
+    }
+
+    function hideShareModal() {
+        document.getElementById('shareModal').classList.remove('active');
+    }
+
+    function shareKakao() {
+        // 카카오톡 공유 (Web Share API 활용)
+        const shareText = `음성 타이핑 프로그램을 PC에 설치해주세요!\n\n이 프로그램을 설치하면, 스마트폰으로 말해서 PC에 글을 쓸 수 있어요.\n\n다운로드: ${DOWNLOAD_URL}`;
+
+        if (navigator.share) {
+            navigator.share({
+                title: '음성 타이핑 PC 프로그램',
+                text: shareText,
+                url: DOWNLOAD_URL
+            }).catch(() => {});
+        } else {
+            // Web Share API 미지원 시 카카오톡 URL scheme
+            const encoded = encodeURIComponent(shareText);
+            window.open(`https://story.kakao.com/share?url=${encodeURIComponent(DOWNLOAD_URL)}`);
+        }
+    }
+
+    function shareSms() {
+        const text = `음성 타이핑 프로그램을 PC에 설치해주세요! 다운로드: ${DOWNLOAD_URL}`;
+        window.open(`sms:?body=${encodeURIComponent(text)}`);
+    }
+
+    function copyLink() {
+        const text = `음성 타이핑 프로그램을 PC에 설치해주세요!\n다운로드: ${DOWNLOAD_URL}`;
+
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(() => {
+                document.getElementById('copySuccess').style.display = 'block';
+                setTimeout(() => {
+                    document.getElementById('copySuccess').style.display = 'none';
+                }, 3000);
+            });
+        } else {
+            // fallback
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            document.getElementById('copySuccess').style.display = 'block';
+        }
+    }
+
+    function openOnConnectedPc() {
+        // 연결된 PC에 설치 사이트 열기 명령 전송
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                action: 'open_url',
+                url: DOWNLOAD_URL
+            }));
+            alert('연결된 PC에서 설치 페이지를 열었어요!');
+            hideShareModal();
+        }
+    }
+
+    // ==================== WebSocket ====================
+    function connectWs() {
+        if (!currentPc) return;
+        disconnectWs();
+
+        const wsUrl = `ws://${currentPc.ip}:${currentPc.wsPort}`;
+        ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+            updateConnStatus(true);
+            // PC 정보 요청
+            ws.send(JSON.stringify({ action: 'get_info' }));
+            // 주기적 핑
+            ws._pingInterval = setInterval(() => {
+                if (ws && ws.readyState === WebSocket.OPEN)
+                    ws.send(JSON.stringify({ action: 'ping' }));
+            }, 30000);
+        };
+
+        ws.onmessage = (e) => {
+            try {
+                const data = JSON.parse(e.data);
+                if (data.action === 'info') {
+                    // PC 이름 업데이트
+                    currentPc.name = data.name || currentPc.name;
+                    document.getElementById('voicePcName').textContent = currentPc.name;
+                    savePcList();
+                } else if (data.action === 'url_opened') {
+                    console.log('PC에서 URL 열림:', data.url);
+                }
+            } catch(e) {}
+        };
+
+        ws.onclose = () => {
+            updateConnStatus(false);
+            clearInterval(ws._pingInterval);
+            // 자동 재연결
+            setTimeout(() => {
+                if (document.getElementById('voiceScreen').classList.contains('active') && currentPc) {
+                    connectWs();
+                }
+            }, 3000);
+        };
+
+        ws.onerror = () => ws.close();
+    }
+
+    function disconnectWs() {
+        if (ws) {
+            clearInterval(ws._pingInterval);
+            ws.onclose = null;
+            ws.close();
+            ws = null;
+        }
+    }
+
+    function updateConnStatus(connected) {
+        const bar = document.getElementById('connBar');
+        const text = document.getElementById('connText');
+        if (connected) {
+            bar.className = 'conn-bar';
+            text.textContent = `${currentPc.name} 연결됨`;
+            if (currentPc) {
+                currentPc.connected = true;
+                savePcList();
+            }
+        } else {
+            bar.className = 'conn-bar disconnected';
+            text.textContent = '연결 끊김 · 재연결 중...';
+            if (currentPc) {
+                currentPc.connected = false;
+                savePcList();
+            }
+        }
+    }
+
+    function send(data) {
+        if (ws && ws.readyState === WebSocket.OPEN)
+            ws.send(JSON.stringify(data));
+    }
+
+    // ==================== 음성 인식 ====================
+    function initSpeech() {
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) {
+            document.getElementById('preview').innerHTML =
+                '<span class="empty">이 브라우저는 음성인식을 지원하지 않습니다.<br>Chrome을 사용해주세요.</span>';
+            return false;
+        }
+
+        recognition = new SR();
+        recognition.lang = 'ko-KR';
+        recognition.interimResults = true;
+        recognition.continuous = true;
+
+        recognition.onresult = (e) => {
+            let interim = '';
+            let final = '';
+
+            for (let i = e.resultIndex; i < e.results.length; i++) {
+                const transcript = e.results[i][0].transcript;
+                if (e.results[i].isFinal) {
+                    final += transcript;
+                } else {
+                    interim += transcript;
+                }
             }
 
-            recognition = new SR();
-            recognition.lang = 'ko-KR';
-            recognition.interimResults = true;
-            recognition.continuous = true;
-
-            recognition.onresult = (e) => {
-                let interim = '';
-                let final = '';
-
-                for (let i = e.resultIndex; i < e.results.length; i++) {
-                    const transcript = e.results[i][0].transcript;
-                    if (e.results[i].isFinal) {
-                        final += transcript;
-                    } else {
-                        interim += transcript;
-                    }
+            if (final) {
+                send({ action: 'type', text: final });
+                lastSentText = final;
+                updatePreview(final, '');
+                if (document.getElementById('autoEnter').checked) {
+                    send({ action: 'enter' });
                 }
+            }
 
-                // 확정된 텍스트 → PC로 전송
-                if (final) {
-                    send({ action: 'type', text: final });
-                    lastSentText = final;
-                    updatePreview(final, '');
+            if (interim) {
+                updatePreview('', interim);
+            }
+        };
 
-                    if (document.getElementById('autoEnter').checked) {
-                        send({ action: 'enter' });
-                    }
+        recognition.onend = () => {
+            if (isRecording) {
+                if (document.getElementById('continuous').checked) {
+                    try { recognition.start(); } catch(e) {}
+                } else {
+                    stopMic();
                 }
+            }
+        };
 
-                // 인식 중 텍스트 미리보기
-                if (interim) {
-                    updatePreview('', interim);
-                }
-            };
-
-            recognition.onend = () => {
-                // 연속 인식 모드면 자동 재시작
+        recognition.onerror = (e) => {
+            if (e.error === 'no-speech') {
                 if (isRecording) {
-                    if (document.getElementById('continuous').checked) {
-                        try { recognition.start(); } catch(e) {}
-                    } else {
-                        stopMic();
-                    }
+                    try { recognition.start(); } catch(e) {}
                 }
-            };
+            } else if (e.error !== 'aborted') {
+                console.error('음성인식 오류:', e.error);
+            }
+        };
 
-            recognition.onerror = (e) => {
-                if (e.error === 'no-speech') {
-                    // 말 안하면 자동 재시작
-                    if (isRecording) {
-                        try { recognition.start(); } catch(e) {}
-                    }
-                } else if (e.error !== 'aborted') {
-                    console.error('음성인식 오류:', e.error);
-                }
-            };
+        return true;
+    }
 
+    function updatePreview(finalText, interimText) {
+        const preview = document.getElementById('preview');
+        let html = '';
+        if (finalText) html += finalText;
+        if (interimText) html += `<span class="listening-text">${interimText}</span>`;
+        if (!html) html = '<span class="empty">🎤 마이크 버튼을 누르고<br>말해보세요</span>';
+        preview.innerHTML = html;
+        preview.scrollTop = preview.scrollHeight;
+    }
+
+    function toggleMic() {
+        isRecording ? stopMic() : startMic();
+    }
+
+    function startMic() {
+        if (!recognition && !initSpeech()) return;
+        try {
+            recognition.start();
+            isRecording = true;
+            document.getElementById('micBtn').classList.add('recording');
+            document.getElementById('micLabel').textContent = '듣고 있어요...';
+            updatePreview('', '');
+        } catch(e) { console.error(e); }
+    }
+
+    function stopMic() {
+        isRecording = false;
+        if (recognition) {
+            try { recognition.stop(); } catch(e) {}
+        }
+        document.getElementById('micBtn').classList.remove('recording');
+        document.getElementById('micLabel').textContent = '눌러서 시작';
+    }
+
+    // ==================== 보조 기능 ====================
+    function doEnter() { send({ action: 'enter' }); }
+
+    function doBackspace() {
+        const count = lastSentText ? lastSentText.length : 1;
+        send({ action: 'backspace', count: count });
+        lastSentText = '';
+    }
+
+    function doClear() {
+        lastSentText = '';
+        updatePreview('', '');
+    }
+
+    // ==================== 쿠팡 광고 ====================
+    function rotateAd() {
+        const ad = COUPANG_ADS[Math.floor(Math.random() * COUPANG_ADS.length)];
+        const banner = document.getElementById('adBanner');
+        if (banner) {
+            banner.innerHTML = `
+                <a href="${ad.url}" target="_blank" rel="noopener" onclick="trackAdClick()">
+                    <div class="ad-title">${ad.title}</div>
+                    <div>${ad.desc}</div>
+                    <div class="ad-label">쿠팡 파트너스 광고</div>
+                </a>
+            `;
+        }
+    }
+
+    function trackAdClick() {
+        console.log('쿠팡 광고 클릭');
+    }
+
+    // ==================== 초기화 ====================
+    // 직접 접속 모드 감지 (PC에서 직접 http://ip:port 로 접속한 경우)
+    function checkDirectMode() {
+        const hostname = location.hostname;
+        // localhost가 아니고, 파일 프로토콜이 아니면 → PC에서 직접 서빙
+        if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1' && location.protocol !== 'file:') {
+            // 직접 접속 모드: 바로 해당 PC에 연결
+            addPc('이 PC', hostname, 8766, parseInt(location.port) || 8765);
             return true;
         }
+        return false;
+    }
 
-        function updatePreview(finalText, interimText) {
-            const preview = document.getElementById('preview');
-            let html = '';
-            if (finalText) {
-                html += finalText;
-            }
-            if (interimText) {
-                html += `<span class="listening-text">${interimText}</span>`;
-            }
-            if (!html) {
-                html = '<span class="empty">마이크 버튼을 누르고 말하세요</span>';
-            }
-            preview.innerHTML = html;
-            preview.scrollTop = preview.scrollHeight;
-        }
+    // 시작
+    if (!checkDirectMode()) {
+        renderPcList();
+    }
+    initSpeech();
 
-        function toggleMic() {
-            if (isRecording) {
-                stopMic();
-            } else {
-                startMic();
-            }
-        }
-
-        function startMic() {
-            if (!recognition && !initSpeech()) return;
-
-            try {
-                recognition.start();
-                isRecording = true;
-                document.getElementById('micBtn').classList.add('recording');
-                document.getElementById('micLabel').textContent = '듣고 있어요...';
-                updatePreview('', '');
-            } catch(e) {
-                console.error(e);
-            }
-        }
-
-        function stopMic() {
-            isRecording = false;
-            if (recognition) {
-                try { recognition.stop(); } catch(e) {}
-            }
-            document.getElementById('micBtn').classList.remove('recording');
-            document.getElementById('micLabel').textContent = '눌러서 시작';
-        }
-
-        // --- 보조 버튼 ---
-        function doEnter() {
-            send({ action: 'enter' });
-        }
-
-        function doBackspace() {
-            // 마지막 보낸 텍스트 길이만큼 지우기
-            const count = lastSentText ? lastSentText.length : 1;
-            send({ action: 'backspace', count: count });
-            lastSentText = '';
-        }
-
-        function doClear() {
-            lastSentText = '';
-            document.getElementById('preview').innerHTML =
-                '<span class="empty">마이크 버튼을 누르고 말하세요</span>';
-        }
-
-        // 시작
-        connect();
-        initSpeech();
-    </script>
+    // 광고 30초마다 교체
+    setInterval(rotateAd, 30000);
+</script>
 </body>
 </html>
