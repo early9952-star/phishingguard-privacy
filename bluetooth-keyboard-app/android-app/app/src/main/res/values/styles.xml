@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.VoiceTyping" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- 상태바/네비바 색상을 앱 배경과 맞춤 -->
+        <item name="android:statusBarColor">#16162a</item>
+        <item name="android:navigationBarColor">#0f0f1a</item>
+        <item name="android:windowBackground">#0f0f1a</item>
+        <item name="colorPrimary">#e94560</item>
+        <item name="colorPrimaryDark">#16162a</item>
+        <item name="colorAccent">#e94560</item>
+    </style>
+</resources>
