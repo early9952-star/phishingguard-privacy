@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>무선 키보드</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* 상단 바 */
+        .top-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            background: #16213e;
+            border-bottom: 1px solid #0f3460;
+        }
+
+        .top-bar h1 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #e94560;
+        }
+
+        .status {
+            font-size: 12px;
+            padding: 3px 10px;
+            border-radius: 12px;
+            background: #333;
+        }
+
+        .status.connected {
+            background: #0a3d2a;
+            color: #4ade80;
+        }
+
+        .status.disconnected {
+            background: #3d0a0a;
+            color: #f87171;
+        }
+
+        /* 텍스트 입력 영역 */
+        .input-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 8px;
+            min-height: 0;
+        }
+
+        #text-input {
+            flex: 1;
+            width: 100%;
+            background: #16213e;
+            border: 2px solid #0f3460;
+            border-radius: 12px;
+            color: #eee;
+            font-size: 18px;
+            padding: 12px 16px;
+            resize: none;
+            outline: none;
+            line-height: 1.5;
+        }
+
+        #text-input:focus {
+            border-color: #e94560;
+        }
+
+        #text-input::placeholder {
+            color: #555;
+        }
+
+        /* 빠른 전송 버튼 */
+        .send-bar {
+            display: flex;
+            gap: 6px;
+            padding: 6px 8px;
+        }
+
+        .send-bar button {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+
+        .send-bar button:active {
+            transform: scale(0.95);
+        }
+
+        .btn-send {
+            background: #e94560;
+            color: white;
+        }
+
+        .btn-send-enter {
+            background: #0f3460;
+            color: #eee;
+        }
+
+        .btn-clear {
+            background: #333;
+            color: #aaa;
+            flex: 0.5;
+        }
+
+        /* 특수키 영역 */
+        .special-keys {
+            display: flex;
+            gap: 4px;
+            padding: 4px 8px;
+            flex-wrap: wrap;
+        }
+
+        .special-keys button {
+            padding: 8px 12px;
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 8px;
+            color: #ccc;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background 0.1s;
+        }
+
+        .special-keys button:active {
+            background: #0f3460;
+        }
+
+        /* 조합키 영역 */
+        .combo-keys {
+            display: flex;
+            gap: 4px;
+            padding: 4px 8px 8px;
+            flex-wrap: wrap;
+        }
+
+        .combo-keys button {
+            padding: 8px 10px;
+            background: #1a1a3e;
+            border: 1px solid #2a2a5e;
+            border-radius: 8px;
+            color: #aaa;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .combo-keys button:active {
+            background: #2a2a5e;
+        }
+
+        /* 모드 탭 */
+        .mode-tabs {
+            display: flex;
+            padding: 0 8px;
+            gap: 4px;
+        }
+
+        .mode-tab {
+            padding: 6px 14px;
+            background: transparent;
+            border: none;
+            color: #666;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+        }
+
+        .mode-tab.active {
+            color: #e94560;
+            border-bottom-color: #e94560;
+        }
+
+        /* 트랙패드 모드 */
+        .trackpad-area {
+            flex: 1;
+            display: none;
+            flex-direction: column;
+            padding: 8px;
+            min-height: 0;
+        }
+
+        .trackpad-area.visible {
+            display: flex;
+        }
+
+        .input-area.hidden {
+            display: none;
+        }
+
+        #trackpad {
+            flex: 1;
+            background: #16213e;
+            border: 2px solid #0f3460;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #444;
+            font-size: 14px;
+        }
+
+        .mouse-buttons {
+            display: flex;
+            gap: 6px;
+            padding: 8px 0 0;
+        }
+
+        .mouse-buttons button {
+            flex: 1;
+            padding: 14px;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            background: #0f3460;
+            color: #eee;
+        }
+
+        .mouse-buttons button:active {
+            background: #e94560;
+        }
+    </style>
+</head>
+<body>
+    <div class="top-bar">
+        <h1>무선 키보드</h1>
+        <span class="status disconnected" id="status">연결 중...</span>
+    </div>
+
+    <div class="mode-tabs">
+        <button class="mode-tab active" data-mode="keyboard">키보드</button>
+        <button class="mode-tab" data-mode="trackpad">트랙패드</button>
+    </div>
+
+    <!-- 키보드 모드 -->
+    <div class="input-area" id="keyboard-mode">
+        <textarea id="text-input" placeholder="여기에 입력하세요..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+    </div>
+
+    <div class="send-bar" id="send-bar">
+        <button class="btn-clear" onclick="clearInput()">지우기</button>
+        <button class="btn-send-enter" onclick="sendText()">전송</button>
+        <button class="btn-send" onclick="sendTextEnter()">전송+Enter</button>
+    </div>
+
+    <div class="special-keys" id="special-keys">
+        <button onclick="sendKey('Enter')">Enter</button>
+        <button onclick="sendKey('Tab')">Tab</button>
+        <button onclick="sendKey('Backspace')">←Back</button>
+        <button onclick="sendKey('Delete')">Del</button>
+        <button onclick="sendKey('Escape')">Esc</button>
+        <button onclick="sendKey('ArrowUp')">↑</button>
+        <button onclick="sendKey('ArrowDown')">↓</button>
+        <button onclick="sendKey('ArrowLeft')">←</button>
+        <button onclick="sendKey('ArrowRight')">→</button>
+        <button onclick="sendKey('Home')">Home</button>
+        <button onclick="sendKey('End')">End</button>
+    </div>
+
+    <div class="combo-keys" id="combo-keys">
+        <button onclick="sendCombo(['Control','a'])">Ctrl+A</button>
+        <button onclick="sendCombo(['Control','c'])">Ctrl+C</button>
+        <button onclick="sendCombo(['Control','v'])">Ctrl+V</button>
+        <button onclick="sendCombo(['Control','x'])">Ctrl+X</button>
+        <button onclick="sendCombo(['Control','z'])">Ctrl+Z</button>
+        <button onclick="sendCombo(['Control','y'])">Ctrl+Y</button>
+        <button onclick="sendCombo(['Control','s'])">Ctrl+S</button>
+        <button onclick="sendCombo(['Alt','Tab'])">Alt+Tab</button>
+        <button onclick="sendCombo(['Alt','F4'])">Alt+F4</button>
+    </div>
+
+    <!-- 트랙패드 모드 -->
+    <div class="trackpad-area" id="trackpad-mode">
+        <div id="trackpad">터치하여 마우스 이동 (준비 중)</div>
+        <div class="mouse-buttons">
+            <button>왼쪽 클릭</button>
+            <button>오른쪽 클릭</button>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let reconnectTimer = null;
+        const wsPort = 8766;
+
+        function connect() {
+            const wsUrl = `ws://${location.hostname}:${wsPort}`;
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                document.getElementById('status').textContent = '연결됨';
+                document.getElementById('status').className = 'status connected';
+                // 연결 유지를 위한 ping
+                setInterval(() => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ action: 'ping' }));
+                    }
+                }, 30000);
+            };
+
+            ws.onclose = () => {
+                document.getElementById('status').textContent = '연결 끊김';
+                document.getElementById('status').className = 'status disconnected';
+                // 3초 후 재연결
+                clearTimeout(reconnectTimer);
+                reconnectTimer = setTimeout(connect, 3000);
+            };
+
+            ws.onerror = () => {
+                ws.close();
+            };
+        }
+
+        function sendText() {
+            const input = document.getElementById('text-input');
+            const text = input.value;
+            if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+            ws.send(JSON.stringify({ action: 'type', key: text }));
+            input.value = '';
+            input.focus();
+        }
+
+        function sendTextEnter() {
+            const input = document.getElementById('text-input');
+            const text = input.value;
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+            if (text) {
+                ws.send(JSON.stringify({ action: 'type', key: text }));
+            }
+            ws.send(JSON.stringify({ action: 'press', key: 'Enter' }));
+            input.value = '';
+            input.focus();
+        }
+
+        function clearInput() {
+            const input = document.getElementById('text-input');
+            input.value = '';
+            input.focus();
+        }
+
+        function sendKey(key) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            ws.send(JSON.stringify({ action: 'press', key: key }));
+        }
+
+        function sendCombo(keys) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            ws.send(JSON.stringify({ action: 'combo', keys: keys }));
+        }
+
+        // 모드 전환
+        document.querySelectorAll('.mode-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+
+                const mode = tab.dataset.mode;
+                const keyboardMode = document.getElementById('keyboard-mode');
+                const trackpadMode = document.getElementById('trackpad-mode');
+                const sendBar = document.getElementById('send-bar');
+                const specialKeys = document.getElementById('special-keys');
+                const comboKeys = document.getElementById('combo-keys');
+
+                if (mode === 'keyboard') {
+                    keyboardMode.classList.remove('hidden');
+                    trackpadMode.classList.remove('visible');
+                    sendBar.style.display = '';
+                    specialKeys.style.display = '';
+                    comboKeys.style.display = '';
+                } else {
+                    keyboardMode.classList.add('hidden');
+                    trackpadMode.classList.add('visible');
+                    sendBar.style.display = 'none';
+                    specialKeys.style.display = 'none';
+                    comboKeys.style.display = 'none';
+                }
+            });
+        });
+
+        // 시작
+        connect();
+        // 포커스
+        document.getElementById('text-input').focus();
+    </script>
+</body>
+</html>
