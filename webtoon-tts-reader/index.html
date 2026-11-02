@@ -130,6 +130,7 @@
   .page img { width: 100%; display: block; }
   .page-label {
     position: absolute;
+    z-index: 3;
     left: 8px;
     top: 8px;
     background: rgba(0,0,0,.55);
@@ -141,6 +142,7 @@
   }
   .marker {
     position: absolute;
+    z-index: 2; /* 다음 이미지에 걸친 말풍선도 가려지지 않게 */
     border: 2px dashed rgba(79, 70, 229, .55);
     border-radius: 10px;
     cursor: pointer;
@@ -181,7 +183,7 @@
 </head>
 <body>
 <header>
-  <h1>🎧 웹툰 TTS 리더 <small style="font-weight:400;color:#6b7280">1단계 테스트판</small></h1>
+  <h1>🎧 웹툰 TTS 리더 <small style="font-weight:400;color:#6b7280">테스트판</small></h1>
   <p>웹툰 이미지를 넣으면 Claude가 말풍선 대사와 화자를 찾아내고, 캐릭터마다 다른 목소리로 읽으면서 화면을 자동으로 내려줘요. 개인 감상용 도구예요.</p>
 </header>
 
@@ -192,8 +194,11 @@
       <label class="filebtn">🖼️ 이미지 파일 선택 (여러 장 가능)
         <input type="file" id="fileInput" accept="image/*" multiple hidden>
       </label>
-      <button id="sampleBtn">✨ 샘플 웹툰 만들기</button>
-      <p class="hint">파일 이름 순서대로 위에서 아래로 이어 붙여요. 샘플은 저작권 걱정 없는 10컷짜리 테스트 웹툰이고, 정답지도 함께 만들어져요.</p>
+      <div class="row">
+        <button id="sampleBtn">✨ 쉬운 샘플</button>
+        <button id="hardSampleBtn">🔥 어려운 샘플</button>
+      </div>
+      <p class="hint">파일 이름 순서대로 위에서 아래로 이어 붙여요. 크기가 다른 이미지도 같은 폭으로 맞춰요. 샘플은 저작권 걱정 없는 테스트 웹툰이고 정답지도 함께 만들어져요. 어려운 샘플은 여러 모양의 말풍선, 화면 밖 목소리, 파일 경계에 잘린 말풍선, 크기가 다른 이미지가 섞여 있어요.</p>
       <p class="hint" id="pageInfo"></p>
     </section>
 
@@ -205,6 +210,8 @@
       <label class="check"><input type="checkbox" id="rememberKey"> 이 컴퓨터 브라우저에 키 기억하기</label>
       <div class="row">
         <button id="analyzeBtn" class="primary" disabled>🔍 대사 분석 시작</button>
+        <button id="resumeBtn" hidden>⏯ 이어서 분석</button>
+        <button id="abortBtn" hidden>⏹ 분석 멈추기</button>
         <button id="useAnswerBtn" disabled title="API를 쓰지 않고 샘플 정답지로 목소리와 스크롤만 먼저 시험해요">정답지로 바로 듣기</button>
       </div>
       <div id="analyzeStatus" class="status"></div>
@@ -220,7 +227,7 @@
     <section>
       <h2>3. 캐릭터 목소리</h2>
       <div id="charList"><p class="hint">대사를 분석하면 캐릭터가 여기에 나와요.</p></div>
-      <label class="check"><input type="checkbox" id="readSfx"> 효과음도 읽기</label>
+      <label class="check"><input type="checkbox" id="readSfx"> 효과음·배경 글씨도 읽기</label>
       <p class="hint" id="voiceInfo"></p>
     </section>
 
@@ -255,7 +262,7 @@
   </aside>
 
   <main id="viewer">
-    <div id="empty">왼쪽 <b>1번</b>에서 웹툰 이미지를 불러오거나<br><b>샘플 웹툰 만들기</b>를 눌러 보세요.</div>
+    <div id="empty">왼쪽 <b>1번</b>에서 웹툰 이미지를 불러오거나<br><b>샘플</b> 버튼을 눌러 보세요.</div>
   </main>
 </div>
 
@@ -265,66 +272,81 @@ const SDK_URL = "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@1.4.0/+esm";
 const MODEL = "claude-opus-5-5";
 const PRICE_IN = 4;   // 입력 100만 토큰당 달러
 const PRICE_OUT = 20; // 출력 100만 토큰당 달러
-const SEG_MAX_W = 800;     // 분석용으로 줄이는 최대 가로 크기
+const SEG_MAX_W = 800;     // 분석용 띠의 최대 가로 크기
+const SEG_MIN_W = 700;     // 분석용 띠의 최소 가로 크기
 const SEG_H = 1400;        // 세로로 자르는 한 조각 높이
-const SEG_OVERLAP = 350;   // 조각끼리 겹치는 높이 (말풍선이 잘리지 않게)
+const SEG_OVERLAP = 400;   // 조각끼리 겹치는 높이 (말풍선이 잘리지 않게)
+const MAX_TRIES = 3;       // 조각 하나당 최대 시도 횟수
 const NARRATION = "나레이션";
 const SFX = "효과음";
+const BG = "배경 글씨";
+const SPECIAL = new Set([NARRATION, SFX, BG]);
 const COLORS = ["#e11d48", "#2563eb", "#7c3aed", "#059669", "#d97706", "#0891b2", "#db2777", "#65a30d"];
 const PITCHES = [1.25, 0.8, 1.0, 1.5, 0.65, 1.1];
 
 const $ = (id) => document.getElementById(id);
 
 const state = {
-  pages: [],       // {name, src, width, height, el}
+  pages: [],       // {name, src, width, height, el, img, stripTop, stripH}
   lines: [],       // {page, speaker, text, kind, box:{x0,y0,x1,y1}}  (box는 페이지 기준 0~1 비율)
   characters: [],  // {name, description}
   voices: {},      // 화자 이름 -> {voiceURI, pitch, rate}
-  answer: null,    // {lines:[{speaker,text}], source}
+  answer: null,    // {lines:[{speaker,text,kind}], source}
   sampleAnswer: null,
   current: -1,
   playing: false,
   gen: 0,
   usage: { input: 0, output: 0 },
+  job: null,       // 진행 중인 분석 (이어서 분석용)
+  abortCtrl: null,
 };
+window.__webtoon = state; // 문제 확인용
+window.__webtoonTts = (t) => speechChunks(t);
 
 // ===== 1. 이미지 불러오기 =====
 $("fileInput").addEventListener("change", async (e) => {
   const files = [...e.target.files].sort((a, b) =>
     a.name.localeCompare(b.name, undefined, { numeric: true }));
+  e.target.value = "";
   if (!files.length) return;
   const pages = [];
-  for (const f of files) {
-    const src = URL.createObjectURL(f);
-    const img = await loadImage(src);
-    pages.push({ name: f.name, src, width: img.naturalWidth, height: img.naturalHeight });
+  try {
+    for (const f of files) {
+      const src = URL.createObjectURL(f);
+      const img = await loadImage(src);
+      pages.push({ name: f.name, src, img, width: img.naturalWidth, height: img.naturalHeight });
+    }
+  } catch (err) {
+    setStatus(err.message, "error");
+    return;
   }
   state.sampleAnswer = null;
   setPages(pages);
-  e.target.value = "";
 });
 
 function loadImage(src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("이미지를 열 수 없어요: " + src));
+    img.onerror = () => reject(new Error("이미지를 열 수 없어요. 그림 파일이 맞는지 확인해 주세요."));
     img.src = src;
   });
 }
 
 function setPages(pages) {
   stopPlayback(true);
+  state.abortCtrl?.abort();
   state.pages = pages;
   state.lines = [];
   state.characters = [];
+  state.voices = {};
   state.current = -1;
+  state.job = null;
   renderViewer();
   renderScript();
   renderCharacters();
   const total = pages.reduce((s, p) => s + p.height, 0);
   $("pageInfo").textContent = `${pages.length}장 불러옴 (세로 총 ${total.toLocaleString()}px)`;
-  $("analyzeBtn").disabled = false;
   $("useAnswerBtn").disabled = !state.sampleAnswer;
   $("downloadAnswerBtn").disabled = !state.sampleAnswer;
   if (state.sampleAnswer) setAnswer(state.sampleAnswer, "샘플 정답지");
@@ -385,9 +407,9 @@ function applyMarkerToggle() {
 $("showMarkers").addEventListener("change", applyMarkerToggle);
 
 function colorOf(name) {
-  const idx = state.characters.findIndex((c) => c.name === name);
-  if (name === NARRATION) return "#6b7280";
+  if (name === NARRATION || name === BG) return "#6b7280";
   if (name === SFX) return "#ea580c";
+  const idx = state.characters.findIndex((c) => c.name === name);
   return COLORS[(idx < 0 ? 0 : idx) % COLORS.length];
 }
 
@@ -415,6 +437,12 @@ function renderScript() {
   });
 }
 
+function renderAll() {
+  renderScript();
+  renderMarkers();
+  renderCharacters();
+}
+
 function setStatus(msg, kind = "") {
   const el = $("analyzeStatus");
   el.textContent = msg;
@@ -423,35 +451,44 @@ function setStatus(msg, kind = "") {
 
 function updateButtons() {
   const has = state.lines.length > 0;
+  const busy = !!state.abortCtrl;
+  $("analyzeBtn").disabled = busy || !state.pages.length;
+  $("resumeBtn").hidden = busy || !state.job || state.job.next >= state.job.segs.length;
+  if (!$("resumeBtn").hidden) $("resumeBtn").textContent = `⏯ 이어서 분석 (${state.job.next + 1}/${state.job.segs.length}번째 조각부터)`;
+  $("abortBtn").hidden = !busy;
   $("playBtn").disabled = !has;
   $("stopBtn").disabled = !has;
-  $("exportBtn").disabled = !has;
+  $("exportBtn").disabled = !has || busy;
   $("compareBtn").disabled = !(has && state.answer);
 }
 
 // ===== 2. Claude로 대사 분석 =====
 const SYSTEM_PROMPT = `너는 웹툰 이미지에서 대사를 뽑아내는 도우미다.
-이미지 속 말풍선, 생각 풍선, 나레이션 상자, 효과음 글자를 찾아 글자를 정확히 옮겨 적고, 웹툰 독자가 읽는 순서대로 나열한다.
+이미지 속 말풍선, 생각 풍선, 나레이션 상자, 효과음, 배경 글씨를 찾아 글자를 정확히 옮겨 적고, 웹툰 독자가 읽는 순서대로 나열한다.
+
+이미지는 세로로 긴 웹툰을 일정한 높이로 자른 조각 하나다. 위아래 조각과 일부가 겹친다.
 
 규칙:
-- 읽는 순서: 한국 웹툰 기준으로 위에서 아래로 읽는다. 높이가 비슷하면 왼쪽에서 오른쪽으로 읽는다. 같은 컷 안에서는 대화의 흐름이 자연스럽게 이어지는 순서를 고른다.
-- 이미지의 위쪽이나 아래쪽 가장자리에 걸려 일부만 보이는 말풍선은 넣지 않는다. 이어지는 다른 조각에서 따로 처리된다.
-- 글자는 보이는 그대로 옮긴다. 말풍선 안의 줄바꿈은 띄어쓰기 하나로 바꾼다. 맞춤법을 고치지 않는다.
+- 읽는 순서: 한국 웹툰은 위에서 아래로 읽는다. 같은 컷 안에서 높이가 비슷하면 왼쪽에서 오른쪽으로 읽는다. 말풍선이 지그재그로 놓이면 대화가 자연스럽게 이어지는 순서를 고른다. 이어진 말풍선(꼬리나 띠로 연결된 말풍선)은 하나씩 따로 적는다.
+- 조각의 위쪽이나 아래쪽 가장자리에 걸려 글자가 잘린 말풍선은 넣지 않는다. 겹치는 다른 조각에서 온전하게 처리된다. 글자가 모두 보이면 넣는다.
+- 글자는 보이는 그대로 옮긴다. 말풍선 안의 줄바꿈은 띄어쓰기 하나로 바꾼다. 맞춤법을 고치지 않는다. ㅋㅋ, ㅠㅠ, ~, … 같은 표현도 그대로 둔다. 작거나 흐린 글씨도 최대한 읽는다.
 - speaker(화자):
-  - 말풍선 꼬리가 가리키는 인물, 또는 생각 풍선이 연결된 인물이 화자다.
-  - "지금까지 나온 등장인물" 목록에 같은 인물이 있으면 반드시 그 이름을 그대로 쓴다.
-  - 대사에서 이름이나 호칭(예: 할머니, 선생님)으로 불리는 인물은 그 이름이나 호칭을 쓴다.
+  - 말풍선 꼬리가 가리키는 인물, 생각 풍선이 연결된 인물이 화자다.
+  - "지금까지 나온 등장인물" 목록에 같은 인물이 있으면 반드시 그 이름을 그대로 쓴다. 같은 인물에게 새 이름을 만들지 않는다.
+  - 대사에서 이름이나 호칭(예: 할머니, 선생님, 엄마)으로 불리는 인물은 그 이름이나 호칭을 쓴다.
+  - 꼬리가 컷 밖을 가리키는 화면 밖 목소리는 앞뒤 대사로 누구인지 추측해서 쓴다. 정말 모르겠으면 "화면 밖 목소리"로 쓴다.
   - 이름을 알 수 없으면 "인물A", "인물B"처럼 이름을 붙이고, characters의 description에 외모 특징을 적는다.
-  - 나레이션 상자는 speaker를 "${NARRATION}", 효과음은 "${SFX}"로 한다.
-- kind: 일반 대사는 "dialogue", 생각은 "thought", 나레이션 상자는 "narration", 효과음은 "sfx".
-- box: 그 말풍선(또는 글자 영역)을 감싸는 사각형의 픽셀 좌표. 이미지 왼쪽 위가 (0,0)이다.
-- characters: 이 이미지에 나온 인물(나레이션과 효과음은 빼고)의 이름과 외모 특징 한 줄.
+  - 나레이션 상자는 "${NARRATION}", 효과음은 "${SFX}", 간판·표지판·문서 같은 배경 글씨는 "${BG}"로 한다.
+- renames: 목록에 "인물A"처럼 임시 이름으로 있던 인물의 진짜 이름이나 호칭을 이 조각에서 알게 되면 {from: 임시 이름, to: 진짜 이름}을 넣는다. 없으면 빈 배열.
+- kind: 일반 대사 "dialogue", 생각 "thought", 나레이션 상자 "narration", 효과음 "sfx", 배경 글씨 "background".
+- box: 그 말풍선(또는 글자 영역)을 감싸는 사각형의 픽셀 좌표. 이 조각 이미지의 왼쪽 위가 (0,0)이다.
+- characters: 이 조각에 나온 인물(나레이션·효과음·배경 글씨는 빼고)의 이름과 외모 특징 한 줄.
 - 대사가 하나도 없으면 lines를 빈 배열로 둔다.`;
 
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["characters", "lines"],
+  required: ["characters", "renames", "lines"],
   properties: {
     characters: {
       type: "array",
@@ -465,6 +502,18 @@ const SCHEMA = {
         },
       },
     },
+    renames: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["from", "to"],
+        properties: {
+          from: { type: "string" },
+          to: { type: "string" },
+        },
+      },
+    },
     lines: {
       type: "array",
       items: {
@@ -474,7 +523,7 @@ const SCHEMA = {
         properties: {
           speaker: { type: "string" },
           text: { type: "string" },
-          kind: { type: "string", enum: ["dialogue", "thought", "narration", "sfx"] },
+          kind: { type: "string", enum: ["dialogue", "thought", "narration", "sfx", "background"] },
           box: {
             type: "object",
             additionalProperties: false,
@@ -513,16 +562,20 @@ async function loadSdk() {
   if (!AnthropicSDK) {
     try {
       AnthropicSDK = (await import(SDK_URL)).default;
-    } catch (err) {
+    } catch {
       throw new Error("Claude SDK를 불러오지 못했어요. 인터넷 연결을 확인해 주세요.");
     }
   }
   return AnthropicSDK;
 }
 
-$("analyzeBtn").addEventListener("click", analyzeAll);
+$("analyzeBtn").addEventListener("click", () => analyzeAll(false));
+$("resumeBtn").addEventListener("click", () => analyzeAll(true));
+$("abortBtn").addEventListener("click", () => state.abortCtrl?.abort());
 
-async function analyzeAll() {
+class ParseError extends Error {}
+
+async function analyzeAll(resume) {
   const key = $("apiKey").value.trim();
   if (!key) {
     setStatus("API 키를 먼저 넣어 주세요.", "error");
@@ -533,37 +586,38 @@ async function analyzeAll() {
     try { localStorage.setItem("webtoon-tts-api-key", key); } catch {}
   }
   stopPlayback(true);
-  $("analyzeBtn").disabled = true;
+  const ctrl = new AbortController();
+  state.abortCtrl = ctrl;
+  updateButtons();
 
   try {
     const Anthropic = await loadSdk();
     const client = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true });
 
-    state.lines = [];
-    state.characters = [];
-    state.current = -1;
-    state.usage = { input: 0, output: 0 };
-    renderScript();
-    renderMarkers();
-    renderCharacters();
-
-    for (let p = 0; p < state.pages.length; p++) {
-      const segments = await makeSegments(state.pages[p]);
-      for (let s = 0; s < segments.length; s++) {
-        setStatus(`분석 중… ${p + 1}/${state.pages.length}번째 이미지, 조각 ${s + 1}/${segments.length}\n${usageText()}`);
-        const result = await analyzeSegment(client, Anthropic, segments[s]);
-        mergeResult(p, segments[s], result);
-        renderScript();
-        renderMarkers();
-        renderCharacters();
-      }
+    if (!resume || !state.job) {
+      state.lines = [];
+      state.characters = [];
+      state.voices = {};
+      state.current = -1;
+      state.usage = { input: 0, output: 0 };
+      renderAll();
+      const strip = await prepareStrip();
+      state.job = { ...strip, segs: planSegments(strip.H), next: 0 };
     }
-    setStatus(`완료! 대사 ${state.lines.length}개, 캐릭터 ${state.characters.length}명을 찾았어요.\n${usageText()}`, "ok");
+    const job = state.job;
+    for (; job.next < job.segs.length; job.next++) {
+      const seg = job.segs[job.next];
+      const result = await analyzeWithRetry(client, Anthropic, job, job.next, ctrl.signal);
+      mergeResult(job, job.next, result);
+      renderAll();
+    }
+    setStatus(`완료! 대사 ${state.lines.length}개, 캐릭터 ${state.characters.length}명을 찾았어요.\n${usageText()}\n화자 이름이 틀리면 3번에서 이름을 고치면 돼요.`, "ok");
   } catch (err) {
-    setStatus(explainError(err), "error");
-    console.error(err);
+    if (!ctrl.signal.aborted) console.error(err);
+    const where = state.job ? `\n${state.job.next}/${state.job.segs.length}개 조각까지 끝났어요. '이어서 분석'을 누르면 거기서부터 다시 해요.` : "";
+    setStatus((ctrl.signal.aborted ? "분석을 멈췄어요." : explainError(err)) + where + "\n" + usageText(), "error");
   } finally {
-    $("analyzeBtn").disabled = false;
+    state.abortCtrl = null;
     updateButtons();
   }
 }
@@ -587,41 +641,75 @@ function explainError(err) {
   return "문제가 생겼어요: " + (err?.message || err);
 }
 
-// 긴 웹툰 이미지를 Claude가 읽기 좋은 크기로 잘라요.
-async function makeSegments(page) {
-  const img = await loadImage(page.src);
-  const scale = Math.min(1, SEG_MAX_W / img.naturalWidth);
-  const w = Math.round(img.naturalWidth * scale);
-  const h = Math.round(img.naturalHeight * scale);
+// 모든 이미지를 같은 폭으로 맞춰 세로로 이어 붙인 '띠'로 생각해요.
+// 그래야 파일 경계에 걸린 말풍선도 한 조각 안에서 온전히 보여요.
+async function prepareStrip() {
+  // 폭이 좁은 이미지는 작은 글씨가 잘 보이도록 조금 키우고, 너무 큰 이미지는 줄여요.
+  const W = Math.min(SEG_MAX_W, Math.max(SEG_MIN_W, ...state.pages.map((p) => p.width)));
+  let y = 0;
+  for (const p of state.pages) {
+    p.img ??= await loadImage(p.src);
+    p.stripTop = y;
+    p.stripH = Math.max(1, Math.round(p.height * W / p.width));
+    y += p.stripH;
+  }
+  return { W, H: y };
+}
+
+function planSegments(H) {
   const segs = [];
   const step = SEG_H - SEG_OVERLAP;
   for (let top = 0; ; top += step) {
-    const bottom = Math.min(h, top + SEG_H);
-    const isFirst = top === 0;
-    const isLast = bottom >= h;
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = bottom - top;
-    const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, w, canvas.height);
-    ctx.drawImage(img, 0, -top, w, h);
-    segs.push({
-      data: canvas.toDataURL("image/jpeg", 0.92).split(",")[1],
-      top, bottom, width: w, fullHeight: h,
-      // 겹치는 부분의 말풍선은 한 조각에서만 쓰도록 담당 구역을 나눠요.
-      ownTop: isFirst ? 0 : top + SEG_OVERLAP / 2,
-      ownBottom: isLast ? h : bottom - SEG_OVERLAP / 2,
-    });
-    if (isLast) break;
+    const bottom = Math.min(H, top + SEG_H);
+    segs.push({ top: Math.max(0, Math.min(top, bottom - SEG_H)), bottom });
+    if (bottom >= H) break;
   }
   return segs;
 }
 
-async function analyzeSegment(client, Anthropic, seg) {
+function renderSegment(job, seg) {
+  const canvas = document.createElement("canvas");
+  canvas.width = job.W;
+  canvas.height = seg.bottom - seg.top;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  for (const p of state.pages) {
+    if (p.stripTop + p.stripH <= seg.top || p.stripTop >= seg.bottom) continue;
+    ctx.drawImage(p.img, 0, p.stripTop - seg.top, job.W, p.stripH);
+  }
+  return canvas.toDataURL("image/jpeg", 0.92).split(",")[1];
+}
+
+async function analyzeWithRetry(client, Anthropic, job, idx, signal) {
+  for (let attempt = 1; ; attempt++) {
+    setStatus(`분석 중… 조각 ${idx + 1}/${job.segs.length}${attempt > 1 ? ` (다시 시도 ${attempt - 1}번째)` : ""}\n${usageText()}`);
+    try {
+      return await analyzeSegment(client, job, idx, signal);
+    } catch (err) {
+      if (signal.aborted) throw err;
+      const fatal = err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError ||
+        err instanceof Anthropic.BadRequestError || err instanceof Anthropic.NotFoundError;
+      if (fatal || attempt >= MAX_TRIES) throw err;
+      console.warn("조각 분석 실패, 다시 시도해요.", err);
+      await sleep(3000 * attempt, signal);
+    }
+  }
+}
+
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => { clearTimeout(t); reject(new Error("aborted")); }, { once: true });
+  });
+}
+
+async function analyzeSegment(client, job, idx, signal) {
+  const seg = job.segs[idx];
   const known = state.characters.length
-    ? state.characters.map((c) => `- ${c.name}: ${c.description}`).join("\n")
+    ? state.characters.map((c) => `- ${c.name}${c.description ? ": " + c.description : ""}`).join("\n")
     : "(아직 없음)";
+  const recent = state.lines.slice(-8).map((l) => `${l.speaker}: ${l.text}`).join("\n") || "(아직 없음)";
   const response = await client.beta.messages.create({
     model: MODEL,
     max_tokens: 16000,
@@ -635,76 +723,122 @@ async function analyzeSegment(client, Anthropic, seg) {
     messages: [{
       role: "user",
       content: [
-        { type: "image", source: { type: "base64", media_type: "image/jpeg", data: seg.data } },
+        { type: "image", source: { type: "base64", media_type: "image/jpeg", data: renderSegment(job, seg) } },
         {
           type: "text",
-          text: `이 이미지는 세로로 긴 웹툰의 한 조각이에요. 크기는 가로 ${seg.width}px, 세로 ${seg.bottom - seg.top}px예요.\n\n지금까지 나온 등장인물:\n${known}\n\n이 조각의 대사를 읽는 순서대로 뽑아 주세요.`,
+          text: `조각 ${idx + 1}/${job.segs.length}: 전체 웹툰 세로 ${job.H}px 중 ${seg.top}~${seg.bottom}px 부분이에요. ` +
+            `이 조각 이미지 크기는 가로 ${job.W}px, 세로 ${seg.bottom - seg.top}px예요.` +
+            `${idx > 0 ? " 위쪽 " + SEG_OVERLAP + "px 정도는 앞 조각과 겹쳐요." : ""}\n\n` +
+            `지금까지 나온 등장인물:\n${known}\n\n바로 앞까지의 대사:\n${recent}\n\n이 조각의 대사를 읽는 순서대로 뽑아 주세요.`,
         },
       ],
     }],
-  });
+  }, { signal });
 
   state.usage.input += response.usage?.input_tokens ?? 0;
   state.usage.output += response.usage?.output_tokens ?? 0;
 
   if (response.stop_reason === "refusal") {
     console.warn("Claude가 이 조각 분석을 거절했어요.", response.stop_details);
-    return { characters: [], lines: [] };
+    return { characters: [], renames: [], lines: [] };
   }
+  if (response.stop_reason === "max_tokens") throw new ParseError("답변이 너무 길어서 중간에 끊겼어요.");
   const text = response.content.filter((b) => b.type === "text").map((b) => b.text).join("");
-  if (response.stop_reason === "max_tokens") {
-    throw new Error("답변이 너무 길어서 중간에 끊겼어요. 이미지를 더 작게 나눠서 시도해 주세요.");
-  }
   try {
-    return JSON.parse(text);
+    const data = JSON.parse(text);
+    if (!Array.isArray(data.lines)) throw new Error();
+    return data;
   } catch {
-    throw new Error("Claude 답변을 읽지 못했어요. 다시 시도해 주세요.");
+    throw new ParseError("Claude 답변을 읽지 못했어요.");
   }
 }
 
-function mergeResult(pageIndex, seg, result) {
-  for (const c of result.characters || []) {
-    if (!c.name || c.name === NARRATION || c.name === SFX) continue;
-    if (!state.characters.some((k) => k.name === c.name)) state.characters.push({ name: c.name, description: c.description || "" });
+function similarity(a, b) {
+  a = normalizeText(a);
+  b = normalizeText(b);
+  if (!a && !b) return 1;
+  if (!a || !b) return 0;
+  return 1 - levenshtein(a, b) / Math.max(a.length, b.length);
+}
+
+function speakerName(kind, raw) {
+  if (kind === "narration") return NARRATION;
+  if (kind === "sfx") return SFX;
+  if (kind === "background") return BG;
+  return (raw || "").trim() || "화면 밖 목소리";
+}
+
+function mergeResult(job, idx, result) {
+  for (const r of result.renames || []) {
+    const from = r.from?.trim(), to = r.to?.trim();
+    if (from && to && from !== to && !SPECIAL.has(from) && !SPECIAL.has(to)) renameCore(from, to);
   }
+  for (const c of result.characters || []) {
+    const name = c.name?.trim();
+    if (!name || SPECIAL.has(name)) continue;
+    const found = state.characters.find((k) => k.name === name);
+    if (!found) state.characters.push({ name, description: c.description || "" });
+    else if (!found.description && c.description) found.description = c.description;
+  }
+
+  const seg = job.segs[idx];
+  const prev = job.segs[idx - 1];
+  const segH = seg.bottom - seg.top;
+  const clampX = (v) => Math.max(0, Math.min(job.W, Number(v) || 0));
+  const clampY = (v) => Math.max(0, Math.min(segH, Number(v) || 0));
+
   for (const l of result.lines || []) {
-    if (!l.text?.trim()) continue;
-    const segH = seg.bottom - seg.top;
-    const clampX = (v) => Math.max(0, Math.min(seg.width, v));
-    const clampY = (v) => Math.max(0, Math.min(segH, v));
+    const text = l.text?.trim();
+    if (!text || !l.box) continue;
     const y0 = seg.top + clampY(Math.min(l.box.y0, l.box.y1));
     const y1 = seg.top + clampY(Math.max(l.box.y0, l.box.y1));
-    const center = (y0 + y1) / 2;
-    if (center < seg.ownTop || center >= seg.ownBottom) continue; // 다른 조각 담당
-    let speaker = l.speaker?.trim() || "인물";
-    if (l.kind === "narration") speaker = NARRATION;
-    if (l.kind === "sfx") speaker = SFX;
-    if (speaker !== NARRATION && speaker !== SFX && !state.characters.some((k) => k.name === speaker)) {
+    const cy = (y0 + y1) / 2;
+
+    // 앞 조각과 겹치는 부분이면, 앞 조각에서 이미 읽은 대사인지 글자로 확인해요.
+    let insertAt = state.lines.length;
+    if (prev && cy < prev.bottom + 40) {
+      const prevLines = state.lines.filter((x) => x._seg === idx - 1 || (x._cy != null && x._cy >= seg.top - 60));
+      if (prevLines.some((x) => similarity(x.text, text) >= 0.75)) continue;
+      const k = state.lines.findIndex((x) => x._seg === idx - 1 && x._cy > cy + 30);
+      if (k >= 0) insertAt = k;
+    }
+
+    const speaker = speakerName(l.kind, l.speaker);
+    if (!SPECIAL.has(speaker) && !state.characters.some((k) => k.name === speaker)) {
       state.characters.push({ name: speaker, description: "" });
     }
-    state.lines.push({
-      page: pageIndex,
+    let pi = 0;
+    state.pages.forEach((p, i) => { if (p.stripTop <= cy) pi = i; });
+    const page = state.pages[pi];
+    state.lines.splice(insertAt, 0, {
+      page: pi,
       speaker,
-      text: l.text.trim(),
-      kind: l.kind,
+      text,
+      kind: ["dialogue", "thought", "narration", "sfx", "background"].includes(l.kind) ? l.kind : "dialogue",
       box: {
-        x0: clampX(Math.min(l.box.x0, l.box.x1)) / seg.width,
-        x1: clampX(Math.max(l.box.x0, l.box.x1)) / seg.width,
-        y0: y0 / seg.fullHeight,
-        y1: y1 / seg.fullHeight,
+        x0: clampX(Math.min(l.box.x0, l.box.x1)) / job.W,
+        x1: clampX(Math.max(l.box.x0, l.box.x1)) / job.W,
+        y0: (y0 - page.stripTop) / page.stripH,
+        y1: (y1 - page.stripTop) / page.stripH,
       },
+      _seg: idx,
+      _cy: cy,
     });
   }
 }
 
 // ===== 분석 결과 저장 / 불러오기 =====
+function exportLines(lines) {
+  return lines.map(({ page, speaker, text, kind, box }) => ({ page, speaker, text, kind, box }));
+}
+
 $("exportBtn").addEventListener("click", () => {
   const data = {
     format: "webtoon-tts-reader/v1",
     pages: state.pages.map((p) => ({ name: p.name, width: p.width, height: p.height })),
     characters: state.characters,
     voices: state.voices,
-    lines: state.lines.map(({ page, speaker, text, kind, box }) => ({ page, speaker, text, kind, box })),
+    lines: exportLines(state.lines),
   };
   download("웹툰_분석결과.json", JSON.stringify(data, null, 2), "application/json");
 });
@@ -728,6 +862,7 @@ $("importInput").addEventListener("change", async (e) => {
 
 function applyAnalysis(data) {
   stopPlayback(true);
+  state.job = null;
   state.lines = data.lines.map((l) => ({
     page: l.page || 0, speaker: l.speaker, text: l.text, kind: l.kind || "dialogue",
     box: l.box || { x0: 0, y0: 0, x1: 1, y1: 0.01 },
@@ -735,12 +870,10 @@ function applyAnalysis(data) {
   state.characters = data.characters?.length
     ? data.characters.map((c) => ({ name: c.name, description: c.description || "" }))
     : [...new Set(state.lines.map((l) => l.speaker))]
-        .filter((n) => n !== NARRATION && n !== SFX).map((name) => ({ name, description: "" }));
-  if (data.voices) Object.assign(state.voices, data.voices);
+        .filter((n) => !SPECIAL.has(n)).map((name) => ({ name, description: "" }));
+  state.voices = { ...(data.voices || {}) };
   state.current = -1;
-  renderScript();
-  renderMarkers();
-  renderCharacters();
+  renderAll();
   updateButtons();
 }
 
@@ -777,7 +910,7 @@ function koreanVoices() {
 
 function voiceSettings(name) {
   let idx = state.characters.findIndex((c) => c.name === name);
-  if (name === NARRATION || name === SFX) idx = -1;
+  if (SPECIAL.has(name)) idx = -1;
   if (!state.voices[name]) {
     state.voices[name] = {
       voiceURI: "",
@@ -798,8 +931,7 @@ function voiceSettings(name) {
 function renderCharacters() {
   const box = $("charList");
   const names = [...state.characters.map((c) => c.name)];
-  if (state.lines.some((l) => l.speaker === NARRATION)) names.push(NARRATION);
-  if (state.lines.some((l) => l.speaker === SFX)) names.push(SFX);
+  for (const s of SPECIAL) if (state.lines.some((l) => l.speaker === s)) names.push(s);
   if (!names.length) {
     box.innerHTML = '<p class="hint">대사를 분석하면 캐릭터가 여기에 나와요.</p>';
     return;
@@ -821,8 +953,8 @@ function renderCharacters() {
     const nameInput = document.createElement("input");
     nameInput.type = "text";
     nameInput.value = name;
-    nameInput.title = "이름을 바꾸면 이 화자의 모든 대사에 적용돼요";
-    nameInput.disabled = name === NARRATION || name === SFX;
+    nameInput.title = "이름을 바꾸면 이 화자의 모든 대사에 적용돼요. 다른 캐릭터 이름으로 바꾸면 둘이 합쳐져요.";
+    nameInput.disabled = SPECIAL.has(name);
     nameInput.addEventListener("change", () => renameCharacter(name, nameInput.value.trim()));
     const preview = document.createElement("button");
     preview.textContent = "🔊";
@@ -830,7 +962,7 @@ function renderCharacters() {
     preview.addEventListener("click", () => {
       const sample = state.lines.find((l) => l.speaker === name)?.text || "안녕하세요, 반가워요.";
       stopPlayback(false);
-      speechSynthesis.speak(makeUtterance(name, sample));
+      for (const chunk of speechChunks(sample)) speechSynthesis.speak(makeUtterance(name, chunk));
     });
     head.append(dot, nameInput, preview);
     card.append(head);
@@ -875,22 +1007,27 @@ function makeSlider(label, min, max, step, value, onInput) {
   return row;
 }
 
-function renameCharacter(oldName, newName) {
-  if (!newName || newName === oldName) return renderCharacters();
+// 화자 이름 바꾸기. 이미 있는 이름으로 바꾸면 두 캐릭터를 하나로 합쳐요.
+function renameCore(oldName, newName) {
+  if (!newName || newName === oldName) return;
   const existing = state.characters.find((c) => c.name === newName);
   const target = state.characters.find((c) => c.name === oldName);
   if (existing) {
-    // 같은 이름이 이미 있으면 두 캐릭터를 하나로 합쳐요.
+    if (!existing.description && target?.description) existing.description = target.description;
     state.characters = state.characters.filter((c) => c.name !== oldName);
   } else if (target) {
     target.name = newName;
-    state.voices[newName] = state.voices[oldName];
+    if (state.voices[oldName]) state.voices[newName] = state.voices[oldName];
+  } else {
+    state.characters.push({ name: newName, description: "" });
   }
   delete state.voices[oldName];
   state.lines.forEach((l) => { if (l.speaker === oldName) l.speaker = newName; });
-  renderCharacters();
-  renderScript();
-  renderMarkers();
+}
+
+function renameCharacter(oldName, newName) {
+  renameCore(oldName, newName);
+  renderAll();
 }
 
 $("readSfx").addEventListener("change", renderScript);
@@ -902,7 +1039,41 @@ speedInput.addEventListener("input", () => {
 });
 
 function shouldRead(line) {
-  return line.kind !== "sfx" || $("readSfx").checked;
+  return (line.kind !== "sfx" && line.kind !== "background") || $("readSfx").checked;
+}
+
+// 화면 글자는 그대로 두고, 소리 내어 읽기 좋게만 다듬어요.
+function ttsText(t) {
+  return (t || "")
+    .replace(/ㅋ{2,}/g, " 크크크 ")
+    .replace(/ㅎ{2,}/g, " 흐흐 ")
+    .replace(/[ㅠㅜ]+/g, " ")
+    .replace(/[ㄱ-ㅎㅏ-ㅣ]/g, "")
+    .replace(/[♡♥★☆♪♬~*^_]+/g, " ")
+    .replace(/(…|\.{2,})+/g, ", ")
+    .replace(/([!?])[!?]+/g, "$1")
+    .replace(/\s+/g, " ")
+    .replace(/^[\s,]+|[\s,]+$/g, "")
+    .trim();
+}
+
+// 긴 대사는 문장 단위로 나눠요. (크롬은 긴 문장을 읽다가 멈추는 문제가 있어요)
+function speechChunks(text) {
+  const t = ttsText(text);
+  if (!/[\p{L}\p{N}]/u.test(t)) return [];
+  const parts = t.match(/[^.!?。]+[.!?。]*\s*/g) || [t];
+  const chunks = [];
+  for (let p of parts) {
+    p = p.trim();
+    while (p.length > 120) {
+      let cut = p.lastIndexOf(" ", 120);
+      if (cut < 40) cut = 120;
+      chunks.push(p.slice(0, cut));
+      p = p.slice(cut).trim();
+    }
+    if (p) chunks.push(p);
+  }
+  return chunks;
 }
 
 function makeUtterance(speaker, text) {
@@ -959,22 +1130,31 @@ function speakNext(i, gen) {
   }
   const line = state.lines[i];
   setCurrent(i, true);
-  const u = makeUtterance(line.speaker, line.text);
-  let done = false;
-  // 브라우저가 끝났다는 신호를 빠뜨려도 멈추지 않게 안전장치를 둬요.
-  const guardMs = (line.text.length * 350) / u.rate + 4000;
-  const timer = setTimeout(advance, guardMs);
-  function advance() {
-    if (done) return;
-    done = true;
-    clearTimeout(timer);
-    if (gen !== state.gen) return;
-    setTimeout(() => speakNext(i + 1, gen), 300);
+  speakChunks(line, speechChunks(line.text), 0, gen, () => setTimeout(() => speakNext(i + 1, gen), 300));
+}
+
+function speakChunks(line, chunks, k, gen, done) {
+  if (gen !== state.gen) return;
+  if (k >= chunks.length) {
+    // 읽을 글자가 없는 말풍선("…", "?!" 같은 것)은 잠깐 쉬고 넘어가요.
+    if (!chunks.length) setTimeout(() => gen === state.gen && done(), 700);
+    else done();
+    return;
   }
-  u.onend = advance;
+  const u = makeUtterance(line.speaker, chunks[k]);
+  let finished = false;
+  // 브라우저가 끝났다는 신호를 빠뜨려도 멈추지 않게 안전장치를 둬요.
+  const timer = setTimeout(next, (chunks[k].length * 350) / u.rate + 4000);
+  function next() {
+    if (finished) return;
+    finished = true;
+    clearTimeout(timer);
+    speakChunks(line, chunks, k + 1, gen, done);
+  }
+  u.onend = next;
   u.onerror = (e) => {
     if (e.error === "interrupted" || e.error === "canceled") return;
-    advance();
+    next();
   };
   speechSynthesis.speak(u);
 }
@@ -1024,8 +1204,13 @@ function parseAnswer(text, name) {
     const t = raw.trim();
     if (!t || t.startsWith("#")) continue;
     const m = t.match(/^([^:：]{1,20})[:：]\s*(.+)$/);
-    if (m) lines.push({ speaker: m[1].trim(), text: m[2].trim(), kind: "dialogue" });
-    else lines.push({ speaker: NARRATION, text: t, kind: "narration" });
+    if (m) {
+      const speaker = m[1].trim();
+      const kind = speaker === SFX ? "sfx" : speaker === BG ? "background" : speaker === NARRATION ? "narration" : "dialogue";
+      lines.push({ speaker, text: m[2].trim(), kind });
+    } else {
+      lines.push({ speaker: NARRATION, text: t, kind: "narration" });
+    }
   }
   if (!lines.length) throw new Error("대사가 한 줄도 없어요.");
   return lines;
@@ -1038,7 +1223,7 @@ function setAnswer(lines, source) {
 }
 
 $("compareBtn").addEventListener("click", () => {
-  const ans = state.answer.lines.filter((l) => l.kind !== "sfx" || $("readSfx").checked);
+  const ans = state.answer.lines.filter((l) => shouldRead(l));
   const pred = state.lines.filter((l) => shouldRead(l));
   renderComparison(compare(ans, pred), ans, pred);
 });
@@ -1058,13 +1243,6 @@ function levenshtein(a, b) {
     prev = cur;
   }
   return prev[n];
-}
-
-function similarity(a, b) {
-  a = normalizeText(a);
-  b = normalizeText(b);
-  if (!a && !b) return 1;
-  return 1 - levenshtein(a, b) / Math.max(a.length, b.length);
 }
 
 function compare(ans, pred) {
@@ -1162,101 +1340,194 @@ function renderComparison(r, ans, pred) {
 // ===== 샘플 웹툰 만들기 (저작권 걱정 없는 테스트용) =====
 const FONT = "'Noto Sans KR','Malgun Gothic','Apple SD Gothic Neo',sans-serif";
 
-const SAMPLE = [
-  [
-    { bg: "#e8f4ff", chars: [["민지", 560]], items: [
-      ["narration", NARRATION, "토요일 아침, 민지네 집", 30, 24],
-      ["dialogue", "민지", "준호 오빠! 빨리 일어나!", 250, 110],
+// 대사 항목: [종류, 화자, 모양, 글자, x, y(컷 위쪽 기준), 옵션]
+const EASY = {
+  width: 800, gap: 40, margin: 20, cutAfterPanel: 5, scales: [1, 1],
+  panels: [
+    { h: 440, bg: "#e8f4ff", chars: [["민지", 560]], items: [
+      ["narration", NARRATION, "narration", "토요일 아침, 민지네 집", 30, 24],
+      ["dialogue", "민지", "round", "준호 오빠! 빨리 일어나!", 250, 110],
     ] },
-    { bg: "#f3ecff", chars: [["준호", 200], ["민지", 600]], items: [
-      ["dialogue", "준호", "으음… 오 분만 더…", 40, 30],
-      ["dialogue", "민지", "할머니 댁 가기로 했잖아!", 400, 110],
+    { h: 440, bg: "#f3ecff", chars: [["준호", 200], ["민지", 600]], items: [
+      ["dialogue", "준호", "round", "으음… 오 분만 더…", 40, 30],
+      ["dialogue", "민지", "round", "할머니 댁 가기로 했잖아!", 400, 110],
     ] },
-    { bg: "#fff1e6", chars: [["준호", 400]], items: [
-      ["thought", "준호", "아 맞다, 오늘이었지.", 240, 50],
+    { h: 440, bg: "#fff1e6", chars: [["준호", 400]], items: [
+      ["thought", "준호", "thought", "아 맞다, 오늘이었지.", 240, 50],
     ] },
-    { bg: "#eaf7ea", chars: [["할머니", 420]], items: [
-      ["narration", NARRATION, "한 시간 뒤, 할머니 댁", 30, 24],
-      ["dialogue", "할머니", "아이고, 우리 강아지들 왔구나!", 330, 100],
+    { h: 440, bg: "#eaf7ea", chars: [["할머니", 420]], items: [
+      ["narration", NARRATION, "narration", "한 시간 뒤, 할머니 댁", 30, 24],
+      ["dialogue", "할머니", "round", "아이고, 우리 강아지들 왔구나!", 330, 100],
     ] },
-    { bg: "#fdeef4", chars: [["민지", 220], ["준호", 580]], items: [
-      ["dialogue", "민지", "할머니, 보고 싶었어요!", 40, 30],
-      ["dialogue", "준호", "저도요!", 520, 120],
+    { h: 440, bg: "#fdeef4", chars: [["민지", 220], ["준호", 580]], items: [
+      ["dialogue", "민지", "round", "할머니, 보고 싶었어요!", 40, 30],
+      ["dialogue", "준호", "round", "저도요!", 520, 120],
+    ] },
+    { h: 440, bg: "#fff8e1", chars: [["할머니", 200], ["준호", 600]], items: [
+      ["dialogue", "할머니", "round", "배고프지? 부침개 해 놨다.", 30, 30],
+      ["dialogue", "준호", "round", "와, 냄새 진짜 좋다!", 430, 120],
+    ] },
+    { h: 440, bg: "#e8f4ff", chars: [["민지", 420]], items: [
+      ["dialogue", "민지", "round", "오빠, 혼자 다 먹으면 안 돼!", 200, 40],
+    ] },
+    { h: 440, bg: "#f3ecff", chars: [["준호", 200], ["할머니", 600]], items: [
+      ["dialogue", "준호", "round", "알았어, 반씩 나눠 먹자.", 30, 30],
+      ["dialogue", "할머니", "round", "많이 있으니까 싸우지들 마라.", 400, 120],
+    ] },
+    { h: 440, bg: "#fff1e6", chars: [], pan: true, items: [
+      ["sfx", SFX, "sfx", "지글지글", 90, 120, { size: 64, color: "#f97316", angle: -0.12 }],
+      ["narration", NARRATION, "narration", "그날 오후는 유난히 따뜻했다.", 330, 300],
+    ] },
+    { h: 440, bg: "#eaf7ea", chars: [["민지", 220], ["할머니", 600]], items: [
+      ["dialogue", "민지", "round", "할머니, 다음 주에 또 올게요.", 30, 30],
+      ["dialogue", "할머니", "round", "그래, 조심히 가거라.", 440, 120],
     ] },
   ],
-  [
-    { bg: "#fff8e1", chars: [["할머니", 200], ["준호", 600]], items: [
-      ["dialogue", "할머니", "배고프지? 부침개 해 놨다.", 30, 30],
-      ["dialogue", "준호", "와, 냄새 진짜 좋다!", 430, 120],
+};
+
+// 어려운 샘플: 여러 말풍선 모양, 지그재그 대화, 화면 밖 목소리, 나중에 이름이 밝혀지는 인물,
+// 작은 글씨, ㅋㅋ·ㅎㅎ, 효과음·간판 글씨, 기울어진 컷, 파일 경계에 잘린 말풍선, 크기가 다른 이미지.
+const HARD = {
+  width: 720, gap: 36, margin: 16, cutThrough: [[3, 1], [6, 0]], scales: [1, 1.5, 0.9],
+  panels: [
+    { h: 420, bg: "#dbeafe", chars: [["민지", 200]], items: [
+      ["narration", NARRATION, "narration-dark", "3년 뒤, 봄", 30, 24, { size: 22 }],
+      ["background", BG, "sign", "행복 편의점", 420, 40, { size: 28 }],
+      ["dialogue", "민지", "round", "여기 진짜 오랜만이다…", 300, 150, { size: 22 }],
     ] },
-    { bg: "#e8f4ff", chars: [["민지", 420]], items: [
-      ["dialogue", "민지", "오빠, 혼자 다 먹으면 안 돼!", 200, 40],
+    { h: 400, bg: "#fef3c7", chars: [["민지", 170], ["준호", 550]], items: [
+      ["dialogue", "준호", "shout", "야, 민지야!", 420, 16, { size: 30 }],
+      ["dialogue", "민지", "round", "어? 준호 오빠?!", 40, 80, { size: 24 }],
+      ["dialogue", "준호", "ellipse", "ㅋㅋㅋㅋ 놀랐지?", 380, 150, { size: 22 }],
     ] },
-    { bg: "#f3ecff", chars: [["준호", 200], ["할머니", 600]], items: [
-      ["dialogue", "준호", "알았어, 반씩 나눠 먹자.", 30, 30],
-      ["dialogue", "할머니", "많이 있으니까 싸우지들 마라.", 400, 120],
+    { h: 320, bg: "#fce7f3", chars: [["민지", 560, 0.8]], items: [
+      ["thought", "민지", "thought", "왜 이렇게 떨리지…", 230, 36, { size: 22 }],
+      ["sfx", SFX, "sfx", "두근두근", 40, 150, { size: 56, color: "#ec4899", angle: -0.15 }],
     ] },
-    { bg: "#fff1e6", chars: [], pan: true, items: [
-      ["sfx", SFX, "지글지글", 90, 120],
-      ["narration", NARRATION, "그날 오후는 유난히 따뜻했다.", 330, 300],
+    { h: 460, bg: "#e0e7ff", chars: [["선생님", 380]], items: [
+      ["narration", NARRATION, "narration", "그때, 낯익은 목소리가 들렸다.", 24, 20, { size: 20, maxW: 400 }],
+      ["dialogue", "선생님", "round", "너희 둘, 아직도 붙어 다니는구나.", 150, 100, { size: 22, maxW: 260 }],
     ] },
-    { bg: "#eaf7ea", chars: [["민지", 220], ["할머니", 600]], items: [
-      ["dialogue", "민지", "할머니, 다음 주에 또 올게요.", 30, 30],
-      ["dialogue", "할머니", "그래, 조심히 가거라.", 440, 120],
+    { h: 420, bg: "#ecfccb", chars: [["민지", 170], ["준호", 560]], items: [
+      ["dialogue", "민지", "round", "선생님!", 30, 20, { size: 26 }],
+      ["dialogue", "민지", "round", "건강하셨어요?", 80, 92, { size: 22 }],
+      ["dialogue", "준호", "whisper", "아직도 좀 무섭다…", 440, 150, { size: 17 }],
+    ] },
+    { h: 420, bg: "#fee2e2", slant: true, chars: [["선생님", 220], ["준호", 570, 0.9]], items: [
+      ["dialogue", "선생님", "shout", "다 들린다, 준호!", 250, 30, { size: 30, maxW: 260 }],
+      ["sfx", SFX, "sfx", "움찔", 560, 150, { size: 34, color: "#2563eb", angle: 0.2 }],
+    ] },
+    { h: 380, bg: "#f5f5f4", chars: [["민지", 160]], items: [
+      ["dialogue", "엄마", "round", "민지야~ 밥 먹으러 와라!", 380, 30, { size: 22, tail: { x: 720, y: 110 } }],
+      ["dialogue", "민지", "ellipse", "엄마가 부르신다. 저 가 볼게요!", 300, 170, { size: 20, maxW: 240 }],
+    ] },
+    { h: 420, bg: "#ffedd5", chars: [["할머니", 400]], items: [
+      ["narration", NARRATION, "narration", "그날 저녁, 할머니 댁", 24, 20, { size: 20 }],
+      ["dialogue", "할머니", "round", "민지 왔니? 어서 앉아라.", 220, 90, { size: 23 }],
+      ["sfx", SFX, "sfx", "보글보글", 560, 210, { size: 26, color: "#b45309", angle: -0.05 }],
+    ] },
+    { h: 440, bg: "#e0f2fe", chars: [["민지", 180], ["할머니", 560]], items: [
+      ["dialogue", "민지", "round", "할머니, 오늘 선생님 만났어요!", 24, 20, { size: 22, maxW: 280 }],
+      ["dialogue", "할머니", "ellipse", "그 무섭던 선생님? ㅎㅎ", 390, 90, { size: 21, maxW: 220 }],
+      ["dialogue", "민지", "round", "네, 하나도 안 변하셨어요.", 40, 175, { size: 22, maxW: 250 }],
     ] },
   ],
-];
+};
 
-const PAGE_W = 800, PANEL_H = 440, GAP = 40, MARGIN = 20;
-const HEAD_Y = 285; // 패널 안에서 얼굴 중심 높이
+$("sampleBtn").addEventListener("click", () => makeSample(EASY, "쉬운샘플"));
+$("hardSampleBtn").addEventListener("click", () => makeSample(HARD, "어려운샘플"));
 
-$("sampleBtn").addEventListener("click", async () => {
+async function makeSample(spec, prefix) {
   if (document.fonts?.ready) await document.fonts.ready;
-  const pages = [];
-  const answerLines = [];
-  SAMPLE.forEach((panels, pi) => {
-    const h = panels.length * PANEL_H + (panels.length + 1) * GAP;
-    const canvas = document.createElement("canvas");
-    canvas.width = PAGE_W;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(0, 0, PAGE_W, h);
-    panels.forEach((panel, k) => {
-      const top = GAP + k * (PANEL_H + GAP);
-      ctx.fillStyle = panel.bg;
-      ctx.fillRect(MARGIN, top, PAGE_W - MARGIN * 2, PANEL_H);
-      ctx.save();
+  const W = spec.width;
+  const H = spec.gap + spec.panels.reduce((s, p) => s + p.h + spec.gap, 0);
+  const strip = document.createElement("canvas");
+  strip.width = W;
+  strip.height = H;
+  const ctx = strip.getContext("2d");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, W, H);
+
+  const answers = []; // 띠 좌표
+  const panelTops = [];
+  let top = spec.gap;
+  spec.panels.forEach((panel, pi) => {
+    panelTops.push(top);
+    const x0 = spec.margin, x1 = W - spec.margin;
+    const skew = panel.slant ? 40 : 0;
+    const shape = () => {
       ctx.beginPath();
-      ctx.rect(MARGIN, top, PAGE_W - MARGIN * 2, PANEL_H);
-      ctx.clip();
-      for (const [who, x] of panel.chars) drawCharacter(ctx, who, x, top + HEAD_Y);
-      if (panel.pan) drawPan(ctx, 400, top + 230);
-      ctx.restore();
-      ctx.lineWidth = 4;
-      ctx.strokeStyle = "#222";
-      ctx.strokeRect(MARGIN, top, PAGE_W - MARGIN * 2, PANEL_H);
-      for (const [kind, who, text, x, y] of panel.items) {
-        const charX = panel.chars.find((c) => c[0] === who)?.[1];
-        const target = charX != null ? { x: charX, y: top + HEAD_Y - 40 } : null;
-        const b = drawTextItem(ctx, kind, text, x, top + y, target);
-        answerLines.push({
-          page: pi, speaker: who, text, kind,
-          box: { x0: b.x0 / PAGE_W, y0: b.y0 / h, x1: b.x1 / PAGE_W, y1: b.y1 / h },
-        });
-      }
-    });
-    pages.push({
-      name: `샘플_${String(pi + 1).padStart(2, "0")}.png`,
-      src: canvas.toDataURL("image/png"),
-      width: PAGE_W,
-      height: h,
-    });
+      ctx.moveTo(x0, top + skew);
+      ctx.lineTo(x1, top);
+      ctx.lineTo(x1, top + panel.h - skew);
+      ctx.lineTo(x0, top + panel.h);
+      ctx.closePath();
+    };
+    shape();
+    ctx.fillStyle = panel.bg;
+    ctx.fill();
+    ctx.save();
+    shape();
+    ctx.clip();
+    const headY = top + panel.h - 155;
+    for (const [who, x, scale] of panel.chars) drawCharacter(ctx, who, x, headY, scale || 1);
+    if (panel.pan) drawPan(ctx, W / 2, top + 230);
+    ctx.restore();
+    shape();
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "#222";
+    ctx.stroke();
+
+    for (const [kind, who, bubble, text, x, y, opt = {}] of panel.items) {
+      const ch = panel.chars.find((c) => c[0] === who);
+      let target = opt.tail || null;
+      if (!target && ch) target = { x: ch[1], y: headY - 45 * (ch[2] || 1) };
+      if (opt.tail) target = { x: opt.tail.x, y: top + opt.tail.y };
+      const b = drawBubble(ctx, { ...opt, kind, shape: bubble, text, x, y: top + y, target, W, margin: spec.margin, offscreen: !!opt.tail });
+      answers.push({ panel: pi, speaker: who, text, kind, box: b });
+    }
+    top += panel.h + spec.gap;
   });
-  state.sampleAnswer = answerLines;
+
+  // 띠를 여러 이미지 파일로 자르기
+  let cuts = [];
+  if (spec.cutAfterPanel) cuts = [panelTops[spec.cutAfterPanel] - spec.gap / 2];
+  if (spec.cutThrough) {
+    // 일부러 말풍선 한가운데를 지나가게 잘라요.
+    cuts = spec.cutThrough.map(([pi, k]) => {
+      const b = answers.filter((a) => a.panel === pi)[k].box;
+      return Math.round((b.y0 + b.y1) / 2);
+    });
+  }
+  const bounds = [0, ...cuts, H];
+  const pages = [];
+  for (let k = 0; k < bounds.length - 1; k++) {
+    const scale = spec.scales[k] || 1;
+    const h = bounds[k + 1] - bounds[k];
+    const c = document.createElement("canvas");
+    c.width = Math.round(W * scale);
+    c.height = Math.round(h * scale);
+    c.getContext("2d").drawImage(strip, 0, bounds[k], W, h, 0, 0, c.width, c.height);
+    pages.push({ name: `${prefix}_${String(k + 1).padStart(2, "0")}.png`, src: c.toDataURL("image/png"), width: c.width, height: c.height, top: bounds[k], h });
+  }
+  state.sampleAnswer = answers.map((a) => {
+    const cy = (a.box.y0 + a.box.y1) / 2;
+    let pi = 0;
+    pages.forEach((p, i) => { if (p.top <= cy) pi = i; });
+    const p = pages[pi];
+    return {
+      page: pi, speaker: a.speaker, text: a.text, kind: a.kind,
+      box: { x0: a.box.x0 / W, x1: a.box.x1 / W, y0: (a.box.y0 - p.top) / p.h, y1: (a.box.y1 - p.top) / p.h },
+    };
+  });
+  for (const p of pages) {
+    p.img = await loadImage(p.src);
+    delete p.top;
+    delete p.h;
+  }
   setPages(pages);
   setStatus("샘플 웹툰을 만들었어요. API 키를 넣고 분석하거나, '정답지로 바로 듣기'로 목소리부터 들어 보세요.", "ok");
-});
+}
 
 $("useAnswerBtn").addEventListener("click", () => {
   if (!state.sampleAnswer) return;
@@ -1292,82 +1563,122 @@ function wrapText(ctx, text, maxW) {
   return lines;
 }
 
-function drawTextItem(ctx, kind, text, x, y, target) {
-  if (kind === "sfx") {
-    ctx.save();
-    ctx.font = `900 64px ${FONT}`;
-    ctx.fillStyle = "#f97316";
-    ctx.strokeStyle = "#7c2d12";
-    ctx.lineWidth = 5;
+// 말풍선 하나를 그리고, 그 영역(띠 좌표)을 돌려줘요.
+function drawBubble(ctx, o) {
+  const { kind, shape, text, W, margin } = o;
+  const size = o.size || 26;
+  ctx.save();
+  if (shape === "sfx") {
+    ctx.font = `900 ${size}px ${FONT}`;
+    ctx.fillStyle = o.color || "#f97316";
+    ctx.strokeStyle = "#1f2937";
+    ctx.lineWidth = Math.max(3, size / 12);
     ctx.textBaseline = "top";
     const w = ctx.measureText(text).width;
-    ctx.translate(x, y);
-    ctx.rotate(-0.12);
+    ctx.translate(o.x, o.y);
+    ctx.rotate(o.angle || 0);
     ctx.strokeText(text, 0, 0);
     ctx.fillText(text, 0, 0);
     ctx.restore();
-    return { x0: x - 5, y0: y - w * 0.12 - 5, x1: x + w + 5, y1: y + 75 };
+    const a = o.angle || 0;
+    const dy = w * Math.sin(a);
+    return { x0: o.x - 6, y0: o.y + Math.min(0, dy) - 6, x1: o.x + w * Math.cos(a) + 6, y1: o.y + size * 1.15 + Math.max(0, dy) + 6 };
   }
-  const fontSize = 26, lh = 36, pad = 20;
-  ctx.font = `700 ${fontSize}px ${FONT}`;
-  const lines = wrapText(ctx, text, 300);
-  const tw = Math.max(...lines.map((l) => ctx.measureText(l).width));
-  const w = tw + pad * 2;
-  const h = lines.length * lh + pad * 2 - (lh - fontSize);
-  const x0 = Math.min(x, PAGE_W - MARGIN - 10 - w);
 
-  ctx.save();
+  const weight = shape === "whisper" ? 500 : 700;
+  ctx.font = `${weight} ${size}px ${FONT}`;
+  const lh = Math.round(size * 1.38);
+  const lines = wrapText(ctx, text, o.maxW || 300);
+  const tw = Math.max(...lines.map((l) => ctx.measureText(l).width));
+  const th = lines.length * lh - (lh - size);
+  const round = shape === "ellipse" || shape === "shout";
+  const padX = round ? size * 1.3 : size * 0.8;
+  const padY = round ? size * 1.0 : size * 0.75;
+  const w = tw + padX * 2;
+  const h = th + padY * 2;
+  const x0 = Math.max(margin + 6, Math.min(o.x, W - margin - 6 - w));
+  const y0 = o.y;
+  const cx = x0 + w / 2, cy = y0 + h / 2;
+
   ctx.lineWidth = 3;
   ctx.strokeStyle = "#222";
-  if (kind === "narration") {
-    ctx.fillStyle = "#fff6c8";
-    ctx.fillRect(x0, y, w, h);
-    ctx.strokeRect(x0, y, w, h);
-  } else {
-    ctx.fillStyle = "#fff";
-    if (target && kind === "dialogue") {
-      // 말풍선 꼬리
-      const bx = Math.max(x0 + 30, Math.min(x0 + w - 30, target.x));
-      ctx.beginPath();
-      ctx.moveTo(bx - 16, y + h - 4);
-      ctx.lineTo(target.x, Math.min(target.y, y + h + 60));
-      ctx.lineTo(bx + 16, y + h - 4);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-    }
-    if (target && kind === "thought") {
-      // 생각 풍선 꼬리 (작은 동그라미)
-      const sx = x0 + w / 2, sy = y + h;
-      [[0.3, 10], [0.6, 7], [0.85, 5]].forEach(([t, r]) => {
-        ctx.beginPath();
-        ctx.arc(sx + (target.x - sx) * t, sy + (target.y - 30 - sy) * t + 10, r, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-      });
-    }
+  ctx.fillStyle = "#fff";
+
+  // 꼬리
+  const t = o.target;
+  if (t && ["round", "ellipse", "shout", "whisper"].includes(shape)) {
+    const ang = Math.atan2(t.y - cy, t.x - cx);
+    const bx = cx + Math.cos(ang) * (w / 2 - 14);
+    const by = cy + Math.sin(ang) * (h / 2 - 10);
+    const len = Math.min(Math.hypot(t.x - bx, t.y - by), o.offscreen ? 999 : 80);
+    const tx = bx + Math.cos(ang) * len, ty = by + Math.sin(ang) * len;
+    const px = -Math.sin(ang) * 14, py = Math.cos(ang) * 14;
     ctx.beginPath();
-    ctx.roundRect(x0, y, w, h, kind === "thought" ? h / 2 : 28);
+    ctx.moveTo(bx + px, by + py);
+    ctx.lineTo(tx, ty);
+    ctx.lineTo(bx - px, by - py);
+    ctx.closePath();
     ctx.fill();
-    if (kind === "thought") ctx.setLineDash([8, 6]);
+    if (shape === "whisper") ctx.setLineDash([6, 5]);
     ctx.stroke();
     ctx.setLineDash([]);
   }
-  ctx.fillStyle = "#111";
+  if (t && shape === "thought") {
+    const sx = cx, sy = y0 + h;
+    [[0.3, 10], [0.6, 7], [0.85, 5]].forEach(([k, r]) => {
+      ctx.beginPath();
+      ctx.arc(sx + (t.x - sx) * k, sy + (t.y - 30 - sy) * k + 10, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    });
+  }
+
+  // 몸통
+  ctx.beginPath();
+  if (shape === "narration" || shape === "narration-dark" || shape === "sign") {
+    ctx.rect(x0, y0, w, h);
+    ctx.fillStyle = shape === "narration" ? "#fff6c8" : shape === "sign" ? "#7c2d12" : "#111";
+  } else if (shape === "ellipse") {
+    ctx.ellipse(cx, cy, w / 2, h / 2, 0, 0, Math.PI * 2);
+  } else if (shape === "shout") {
+    const n = 22;
+    for (let k = 0; k <= n; k++) {
+      const a = (k / n) * Math.PI * 2;
+      const r = k % 2 ? 1.0 : 1.16;
+      const px = cx + Math.cos(a) * (w / 2) * r, py = cy + Math.sin(a) * (h / 2) * r;
+      k ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    }
+    ctx.closePath();
+  } else {
+    ctx.roundRect(x0, y0, w, h, shape === "thought" ? h / 2 : Math.min(28, h / 2));
+  }
+  ctx.fill();
+  if (shape === "thought" || shape === "whisper") ctx.setLineDash([8, 6]);
+  if (shape === "sign") { ctx.lineWidth = 6; ctx.strokeStyle = "#451a03"; }
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = shape === "narration-dark" || shape === "sign" ? "#fff" : shape === "whisper" ? "#4b5563" : "#111";
   ctx.textBaseline = "top";
   ctx.textAlign = "center";
-  lines.forEach((l, i) => ctx.fillText(l, x0 + w / 2, y + pad + i * lh));
+  lines.forEach((l, i) => ctx.fillText(l, cx, y0 + padY + i * lh));
   ctx.restore();
-  return { x0, y0: y, x1: x0 + w, y1: y + h };
+  const grow = shape === "shout" ? 0.16 : 0;
+  return { x0: x0 - (w / 2) * grow, y0: y0 - (h / 2) * grow, x1: x0 + w + (w / 2) * grow, y1: y0 + h + (h / 2) * grow };
 }
 
-function drawCharacter(ctx, who, cx, cy) {
+function drawCharacter(ctx, who, cx, cy, scale = 1) {
   const looks = {
     "민지":   { skin: "#ffd9c2", hair: "#5b3a29", shirt: "#f472b6", long: true },
     "준호":   { skin: "#f1c27d", hair: "#111", shirt: "#3b82f6", spiky: true },
     "할머니": { skin: "#f5d0b5", hair: "#d1d5db", shirt: "#8b5cf6", bun: true, glasses: true },
+    "선생님": { skin: "#eac09a", hair: "#1f2937", shirt: "#4b5563", tie: true, mustache: true },
   }[who];
+  if (!looks) return;
   ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(scale, scale);
+  ctx.translate(-cx, -cy);
   ctx.lineWidth = 3;
   ctx.strokeStyle = "#222";
   // 몸
@@ -1376,6 +1687,17 @@ function drawCharacter(ctx, who, cx, cy) {
   ctx.roundRect(cx - 70, cy + 60, 140, 140, 40);
   ctx.fill();
   ctx.stroke();
+  if (looks.tie) {
+    ctx.fillStyle = "#dc2626";
+    ctx.beginPath();
+    ctx.moveTo(cx - 10, cy + 60);
+    ctx.lineTo(cx + 10, cy + 60);
+    ctx.lineTo(cx + 14, cy + 130);
+    ctx.lineTo(cx, cy + 145);
+    ctx.lineTo(cx - 14, cy + 130);
+    ctx.closePath();
+    ctx.fill();
+  }
   // 긴 머리 (뒤)
   if (looks.long) {
     ctx.fillStyle = looks.hair;
@@ -1428,8 +1750,15 @@ function drawCharacter(ctx, who, cx, cy) {
     ctx.lineTo(cx + 6, cy + 5);
     ctx.stroke();
   }
+  if (looks.mustache) {
+    ctx.fillStyle = looks.hair;
+    ctx.beginPath();
+    ctx.ellipse(cx - 12, cy + 22, 13, 5, 0.2, 0, Math.PI * 2);
+    ctx.ellipse(cx + 12, cy + 22, 13, 5, -0.2, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.beginPath();
-  ctx.arc(cx, cy + 25, 14, 0.15 * Math.PI, 0.85 * Math.PI);
+  ctx.arc(cx, cy + 30, 12, 0.15 * Math.PI, 0.85 * Math.PI);
   ctx.stroke();
   ctx.restore();
 }
