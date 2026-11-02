@@ -1,0 +1,1455 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>웹툰 TTS 리더</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --text: #222;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --accent: #4f46e5;
+    --accent-soft: #eef2ff;
+    --danger: #dc2626;
+    --ok: #16a34a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Noto Sans KR', 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 15px;
+  }
+  header {
+    padding: 14px 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 { margin: 0; font-size: 20px; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 400px 1fr;
+    gap: 20px;
+    padding: 20px;
+    align-items: start;
+  }
+  aside {
+    position: sticky;
+    top: 20px;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px;
+  }
+  section h2 { margin: 0 0 10px; font-size: 16px; }
+  label { display: block; margin: 8px 0; font-size: 14px; }
+  label.check { display: flex; align-items: center; gap: 6px; }
+  input[type=password], input[type=text], select {
+    width: 100%;
+    padding: 7px 9px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font: inherit;
+    margin-top: 4px;
+  }
+  button, .filebtn {
+    display: inline-block;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+    font: inherit;
+    font-size: 14px;
+    cursor: pointer;
+    margin: 4px 4px 4px 0;
+  }
+  button:hover:not(:disabled), .filebtn:hover { background: #f3f4f6; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover:not(:disabled) { background: #4338ca; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; }
+  .hint { color: var(--muted); font-size: 13px; margin: 6px 0; }
+  .status { font-size: 13px; margin-top: 8px; white-space: pre-line; }
+  .status.error { color: var(--danger); }
+  .status.ok { color: var(--ok); }
+
+  .char {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px;
+    margin-bottom: 8px;
+  }
+  .char-head { display: flex; align-items: center; gap: 8px; }
+  .char-head input { margin: 0; flex: 1; font-weight: 700; }
+  .dot { width: 14px; height: 14px; border-radius: 50%; flex: none; }
+  .char-desc { color: var(--muted); font-size: 12px; margin: 4px 0; }
+  .slider { display: grid; grid-template-columns: 48px 1fr 40px; align-items: center; gap: 6px; font-size: 13px; margin: 4px 0; }
+  .slider input { width: 100%; }
+
+  #script { padding-left: 0; list-style: none; margin: 8px 0 0; max-height: 320px; overflow-y: auto; }
+  #script li {
+    padding: 6px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  #script li:hover { background: #f3f4f6; }
+  #script li.current { background: var(--accent-soft); outline: 2px solid var(--accent); }
+  #script li.skipped { opacity: .45; }
+  #script .who { font-weight: 700; margin-right: 6px; }
+  #script .num { color: var(--muted); font-size: 12px; margin-right: 4px; }
+  #script .thought { font-style: italic; }
+
+  main { display: flex; flex-direction: column; align-items: center; }
+  #empty {
+    margin-top: 80px;
+    color: var(--muted);
+    text-align: center;
+    line-height: 1.8;
+  }
+  .page {
+    position: relative;
+    width: 100%;
+    max-width: 800px;
+    line-height: 0;
+  }
+  .page img { width: 100%; display: block; }
+  .page-label {
+    position: absolute;
+    left: 8px;
+    top: 8px;
+    background: rgba(0,0,0,.55);
+    color: #fff;
+    font-size: 12px;
+    line-height: 1.4;
+    padding: 2px 8px;
+    border-radius: 6px;
+  }
+  .marker {
+    position: absolute;
+    border: 2px dashed rgba(79, 70, 229, .55);
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  .marker span {
+    position: absolute;
+    left: -10px;
+    top: -10px;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 4px;
+    border-radius: 11px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 12px;
+    line-height: 22px;
+    text-align: center;
+    font-weight: 700;
+  }
+  .marker.current {
+    border: 4px solid #f59e0b;
+    background: rgba(245, 158, 11, .15);
+    box-shadow: 0 0 0 4px rgba(245, 158, 11, .25);
+  }
+  .hide-markers .marker:not(.current) { display: none; }
+  .hide-markers .marker span { display: none; }
+
+  table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+  table.cmp th, table.cmp td { border-bottom: 1px solid var(--line); padding: 4px; text-align: left; vertical-align: top; }
+  .score { font-size: 14px; line-height: 1.7; margin-top: 8px; }
+  .score b { font-size: 16px; }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; padding: 12px; }
+    aside { position: static; max-height: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎧 웹툰 TTS 리더 <small style="font-weight:400;color:#6b7280">1단계 테스트판</small></h1>
+  <p>웹툰 이미지를 넣으면 Claude가 말풍선 대사와 화자를 찾아내고, 캐릭터마다 다른 목소리로 읽으면서 화면을 자동으로 내려줘요. 개인 감상용 도구예요.</p>
+</header>
+
+<div class="layout">
+  <aside>
+    <section>
+      <h2>1. 웹툰 불러오기</h2>
+      <label class="filebtn">🖼️ 이미지 파일 선택 (여러 장 가능)
+        <input type="file" id="fileInput" accept="image/*" multiple hidden>
+      </label>
+      <button id="sampleBtn">✨ 샘플 웹툰 만들기</button>
+      <p class="hint">파일 이름 순서대로 위에서 아래로 이어 붙여요. 샘플은 저작권 걱정 없는 10컷짜리 테스트 웹툰이고, 정답지도 함께 만들어져요.</p>
+      <p class="hint" id="pageInfo"></p>
+    </section>
+
+    <section>
+      <h2>2. 대사 분석 (Claude)</h2>
+      <label>Claude API 키
+        <input type="password" id="apiKey" placeholder="sk-ant-..." autocomplete="off">
+      </label>
+      <label class="check"><input type="checkbox" id="rememberKey"> 이 컴퓨터 브라우저에 키 기억하기</label>
+      <div class="row">
+        <button id="analyzeBtn" class="primary" disabled>🔍 대사 분석 시작</button>
+        <button id="useAnswerBtn" disabled title="API를 쓰지 않고 샘플 정답지로 목소리와 스크롤만 먼저 시험해요">정답지로 바로 듣기</button>
+      </div>
+      <div id="analyzeStatus" class="status"></div>
+      <div class="row" style="margin-top:6px">
+        <button id="exportBtn" disabled>💾 분석 결과 저장</button>
+        <label class="filebtn">📂 분석 결과 불러오기
+          <input type="file" id="importInput" accept=".json,application/json" hidden>
+        </label>
+      </div>
+      <p class="hint">분석할 때마다 API 요금이 나가요. 한 번 분석한 결과는 저장해 두고 다음에 불러오면 공짜예요.</p>
+    </section>
+
+    <section>
+      <h2>3. 캐릭터 목소리</h2>
+      <div id="charList"><p class="hint">대사를 분석하면 캐릭터가 여기에 나와요.</p></div>
+      <label class="check"><input type="checkbox" id="readSfx"> 효과음도 읽기</label>
+      <p class="hint" id="voiceInfo"></p>
+    </section>
+
+    <section>
+      <h2>4. 듣기</h2>
+      <div class="row">
+        <button id="playBtn" class="primary" disabled>▶ 재생</button>
+        <button id="stopBtn" disabled>■ 처음으로</button>
+      </div>
+      <div class="slider" style="grid-template-columns:70px 1fr 44px">
+        <span>전체 속도</span>
+        <input type="range" id="speed" min="0.6" max="2" step="0.1" value="1">
+        <span id="speedVal">1.0x</span>
+      </div>
+      <label class="check"><input type="checkbox" id="showMarkers" checked> 말풍선 위치·번호 표시</label>
+      <ol id="script"></ol>
+    </section>
+
+    <section>
+      <h2>5. 정답지와 비교</h2>
+      <p class="hint">정답지는 JSON 파일이나, 한 줄에 <code>화자: 대사</code> 형식으로 쓴 텍스트 파일(.txt)을 쓸 수 있어요.</p>
+      <div class="row">
+        <label class="filebtn">📄 정답지 불러오기
+          <input type="file" id="answerInput" accept=".json,.txt,text/plain,application/json" hidden>
+        </label>
+        <button id="compareBtn" disabled>비교하기</button>
+        <button id="downloadAnswerBtn" disabled>샘플 정답지 저장</button>
+      </div>
+      <p class="hint" id="answerInfo"></p>
+      <div id="compareResult"></div>
+    </section>
+  </aside>
+
+  <main id="viewer">
+    <div id="empty">왼쪽 <b>1번</b>에서 웹툰 이미지를 불러오거나<br><b>샘플 웹툰 만들기</b>를 눌러 보세요.</div>
+  </main>
+</div>
+
+<script type="module">
+// ===== 설정 =====
+const SDK_URL = "https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@1.4.0/+esm";
+const MODEL = "claude-opus-5-5";
+const PRICE_IN = 4;   // 입력 100만 토큰당 달러
+const PRICE_OUT = 20; // 출력 100만 토큰당 달러
+const SEG_MAX_W = 800;     // 분석용으로 줄이는 최대 가로 크기
+const SEG_H = 1400;        // 세로로 자르는 한 조각 높이
+const SEG_OVERLAP = 350;   // 조각끼리 겹치는 높이 (말풍선이 잘리지 않게)
+const NARRATION = "나레이션";
+const SFX = "효과음";
+const COLORS = ["#e11d48", "#2563eb", "#7c3aed", "#059669", "#d97706", "#0891b2", "#db2777", "#65a30d"];
+const PITCHES = [1.25, 0.8, 1.0, 1.5, 0.65, 1.1];
+
+const $ = (id) => document.getElementById(id);
+
+const state = {
+  pages: [],       // {name, src, width, height, el}
+  lines: [],       // {page, speaker, text, kind, box:{x0,y0,x1,y1}}  (box는 페이지 기준 0~1 비율)
+  characters: [],  // {name, description}
+  voices: {},      // 화자 이름 -> {voiceURI, pitch, rate}
+  answer: null,    // {lines:[{speaker,text}], source}
+  sampleAnswer: null,
+  current: -1,
+  playing: false,
+  gen: 0,
+  usage: { input: 0, output: 0 },
+};
+
+// ===== 1. 이미지 불러오기 =====
+$("fileInput").addEventListener("change", async (e) => {
+  const files = [...e.target.files].sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { numeric: true }));
+  if (!files.length) return;
+  const pages = [];
+  for (const f of files) {
+    const src = URL.createObjectURL(f);
+    const img = await loadImage(src);
+    pages.push({ name: f.name, src, width: img.naturalWidth, height: img.naturalHeight });
+  }
+  state.sampleAnswer = null;
+  setPages(pages);
+  e.target.value = "";
+});
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("이미지를 열 수 없어요: " + src));
+    img.src = src;
+  });
+}
+
+function setPages(pages) {
+  stopPlayback(true);
+  state.pages = pages;
+  state.lines = [];
+  state.characters = [];
+  state.current = -1;
+  renderViewer();
+  renderScript();
+  renderCharacters();
+  const total = pages.reduce((s, p) => s + p.height, 0);
+  $("pageInfo").textContent = `${pages.length}장 불러옴 (세로 총 ${total.toLocaleString()}px)`;
+  $("analyzeBtn").disabled = false;
+  $("useAnswerBtn").disabled = !state.sampleAnswer;
+  $("downloadAnswerBtn").disabled = !state.sampleAnswer;
+  if (state.sampleAnswer) setAnswer(state.sampleAnswer, "샘플 정답지");
+  setStatus("");
+  updateButtons();
+}
+
+// ===== 화면 그리기 =====
+function renderViewer() {
+  const viewer = $("viewer");
+  viewer.innerHTML = "";
+  if (!state.pages.length) {
+    viewer.innerHTML = '<div id="empty">이미지를 불러와 주세요.</div>';
+    return;
+  }
+  state.pages.forEach((p, i) => {
+    const div = document.createElement("div");
+    div.className = "page";
+    const img = document.createElement("img");
+    img.src = p.src;
+    img.alt = p.name;
+    const label = document.createElement("div");
+    label.className = "page-label";
+    label.textContent = `${i + 1}. ${p.name}`;
+    div.append(img, label);
+    viewer.append(div);
+    p.el = div;
+  });
+  applyMarkerToggle();
+  renderMarkers();
+}
+
+function renderMarkers() {
+  document.querySelectorAll(".marker").forEach((m) => m.remove());
+  state.lines.forEach((line, i) => {
+    const page = state.pages[line.page];
+    if (!page?.el) return;
+    const m = document.createElement("div");
+    m.className = "marker" + (i === state.current ? " current" : "");
+    const b = line.box;
+    m.style.left = b.x0 * 100 + "%";
+    m.style.top = b.y0 * 100 + "%";
+    m.style.width = (b.x1 - b.x0) * 100 + "%";
+    m.style.height = (b.y1 - b.y0) * 100 + "%";
+    m.title = `${line.speaker}: ${line.text}`;
+    const n = document.createElement("span");
+    n.textContent = i + 1;
+    m.append(n);
+    m.addEventListener("click", () => playFrom(i));
+    page.el.append(m);
+    line.markerEl = m;
+  });
+}
+
+function applyMarkerToggle() {
+  $("viewer").classList.toggle("hide-markers", !$("showMarkers").checked);
+}
+$("showMarkers").addEventListener("change", applyMarkerToggle);
+
+function colorOf(name) {
+  const idx = state.characters.findIndex((c) => c.name === name);
+  if (name === NARRATION) return "#6b7280";
+  if (name === SFX) return "#ea580c";
+  return COLORS[(idx < 0 ? 0 : idx) % COLORS.length];
+}
+
+function renderScript() {
+  const ol = $("script");
+  ol.innerHTML = "";
+  state.lines.forEach((line, i) => {
+    const li = document.createElement("li");
+    if (i === state.current) li.className = "current";
+    if (!shouldRead(line)) li.classList.add("skipped");
+    const num = document.createElement("span");
+    num.className = "num";
+    num.textContent = i + 1 + ".";
+    const who = document.createElement("span");
+    who.className = "who";
+    who.style.color = colorOf(line.speaker);
+    who.textContent = line.speaker;
+    const text = document.createElement("span");
+    text.textContent = line.kind === "thought" ? `(${line.text})` : line.text;
+    if (line.kind === "thought") text.className = "thought";
+    li.append(num, who, text);
+    li.addEventListener("click", () => playFrom(i));
+    ol.append(li);
+    line.scriptEl = li;
+  });
+}
+
+function setStatus(msg, kind = "") {
+  const el = $("analyzeStatus");
+  el.textContent = msg;
+  el.className = "status " + kind;
+}
+
+function updateButtons() {
+  const has = state.lines.length > 0;
+  $("playBtn").disabled = !has;
+  $("stopBtn").disabled = !has;
+  $("exportBtn").disabled = !has;
+  $("compareBtn").disabled = !(has && state.answer);
+}
+
+// ===== 2. Claude로 대사 분석 =====
+const SYSTEM_PROMPT = `너는 웹툰 이미지에서 대사를 뽑아내는 도우미다.
+이미지 속 말풍선, 생각 풍선, 나레이션 상자, 효과음 글자를 찾아 글자를 정확히 옮겨 적고, 웹툰 독자가 읽는 순서대로 나열한다.
+
+규칙:
+- 읽는 순서: 한국 웹툰 기준으로 위에서 아래로 읽는다. 높이가 비슷하면 왼쪽에서 오른쪽으로 읽는다. 같은 컷 안에서는 대화의 흐름이 자연스럽게 이어지는 순서를 고른다.
+- 이미지의 위쪽이나 아래쪽 가장자리에 걸려 일부만 보이는 말풍선은 넣지 않는다. 이어지는 다른 조각에서 따로 처리된다.
+- 글자는 보이는 그대로 옮긴다. 말풍선 안의 줄바꿈은 띄어쓰기 하나로 바꾼다. 맞춤법을 고치지 않는다.
+- speaker(화자):
+  - 말풍선 꼬리가 가리키는 인물, 또는 생각 풍선이 연결된 인물이 화자다.
+  - "지금까지 나온 등장인물" 목록에 같은 인물이 있으면 반드시 그 이름을 그대로 쓴다.
+  - 대사에서 이름이나 호칭(예: 할머니, 선생님)으로 불리는 인물은 그 이름이나 호칭을 쓴다.
+  - 이름을 알 수 없으면 "인물A", "인물B"처럼 이름을 붙이고, characters의 description에 외모 특징을 적는다.
+  - 나레이션 상자는 speaker를 "${NARRATION}", 효과음은 "${SFX}"로 한다.
+- kind: 일반 대사는 "dialogue", 생각은 "thought", 나레이션 상자는 "narration", 효과음은 "sfx".
+- box: 그 말풍선(또는 글자 영역)을 감싸는 사각형의 픽셀 좌표. 이미지 왼쪽 위가 (0,0)이다.
+- characters: 이 이미지에 나온 인물(나레이션과 효과음은 빼고)의 이름과 외모 특징 한 줄.
+- 대사가 하나도 없으면 lines를 빈 배열로 둔다.`;
+
+const SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["characters", "lines"],
+  properties: {
+    characters: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["name", "description"],
+        properties: {
+          name: { type: "string" },
+          description: { type: "string" },
+        },
+      },
+    },
+    lines: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["speaker", "text", "kind", "box"],
+        properties: {
+          speaker: { type: "string" },
+          text: { type: "string" },
+          kind: { type: "string", enum: ["dialogue", "thought", "narration", "sfx"] },
+          box: {
+            type: "object",
+            additionalProperties: false,
+            required: ["x0", "y0", "x1", "y1"],
+            properties: {
+              x0: { type: "number" },
+              y0: { type: "number" },
+              x1: { type: "number" },
+              y1: { type: "number" },
+            },
+          },
+        },
+      },
+    },
+  },
+};
+
+// 저장된 API 키 불러오기
+try {
+  const saved = localStorage.getItem("webtoon-tts-api-key");
+  if (saved) {
+    $("apiKey").value = saved;
+    $("rememberKey").checked = true;
+  }
+} catch {}
+
+$("rememberKey").addEventListener("change", () => {
+  try {
+    if ($("rememberKey").checked) localStorage.setItem("webtoon-tts-api-key", $("apiKey").value.trim());
+    else localStorage.removeItem("webtoon-tts-api-key");
+  } catch {}
+});
+
+let AnthropicSDK = null;
+async function loadSdk() {
+  if (!AnthropicSDK) {
+    try {
+      AnthropicSDK = (await import(SDK_URL)).default;
+    } catch (err) {
+      throw new Error("Claude SDK를 불러오지 못했어요. 인터넷 연결을 확인해 주세요.");
+    }
+  }
+  return AnthropicSDK;
+}
+
+$("analyzeBtn").addEventListener("click", analyzeAll);
+
+async function analyzeAll() {
+  const key = $("apiKey").value.trim();
+  if (!key) {
+    setStatus("API 키를 먼저 넣어 주세요.", "error");
+    $("apiKey").focus();
+    return;
+  }
+  if ($("rememberKey").checked) {
+    try { localStorage.setItem("webtoon-tts-api-key", key); } catch {}
+  }
+  stopPlayback(true);
+  $("analyzeBtn").disabled = true;
+
+  try {
+    const Anthropic = await loadSdk();
+    const client = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true });
+
+    state.lines = [];
+    state.characters = [];
+    state.current = -1;
+    state.usage = { input: 0, output: 0 };
+    renderScript();
+    renderMarkers();
+    renderCharacters();
+
+    for (let p = 0; p < state.pages.length; p++) {
+      const segments = await makeSegments(state.pages[p]);
+      for (let s = 0; s < segments.length; s++) {
+        setStatus(`분석 중… ${p + 1}/${state.pages.length}번째 이미지, 조각 ${s + 1}/${segments.length}\n${usageText()}`);
+        const result = await analyzeSegment(client, Anthropic, segments[s]);
+        mergeResult(p, segments[s], result);
+        renderScript();
+        renderMarkers();
+        renderCharacters();
+      }
+    }
+    setStatus(`완료! 대사 ${state.lines.length}개, 캐릭터 ${state.characters.length}명을 찾았어요.\n${usageText()}`, "ok");
+  } catch (err) {
+    setStatus(explainError(err), "error");
+    console.error(err);
+  } finally {
+    $("analyzeBtn").disabled = false;
+    updateButtons();
+  }
+}
+
+function usageText() {
+  const { input, output } = state.usage;
+  const cost = (input * PRICE_IN + output * PRICE_OUT) / 1e6;
+  return `사용 토큰: 입력 ${input.toLocaleString()} / 출력 ${output.toLocaleString()} (약 $${cost.toFixed(3)})`;
+}
+
+function explainError(err) {
+  const A = AnthropicSDK;
+  if (A) {
+    if (err instanceof A.AuthenticationError) return "API 키가 올바르지 않아요. 키를 다시 확인해 주세요.";
+    if (err instanceof A.PermissionDeniedError) return "이 API 키로는 이 모델을 쓸 권한이 없어요.";
+    if (err instanceof A.RateLimitError) return "요청이 너무 많거나 크레딧이 부족해요. 잠시 후 다시 시도하거나 결제 상태를 확인해 주세요.";
+    if (err instanceof A.BadRequestError) return "요청이 거절됐어요: " + (err.message || "");
+    if (err instanceof A.APIConnectionError) return "Claude 서버에 연결하지 못했어요. 인터넷 연결을 확인해 주세요.";
+    if (err instanceof A.APIError) return `Claude API 오류 (${err.status ?? "?"}): ${err.message}`;
+  }
+  return "문제가 생겼어요: " + (err?.message || err);
+}
+
+// 긴 웹툰 이미지를 Claude가 읽기 좋은 크기로 잘라요.
+async function makeSegments(page) {
+  const img = await loadImage(page.src);
+  const scale = Math.min(1, SEG_MAX_W / img.naturalWidth);
+  const w = Math.round(img.naturalWidth * scale);
+  const h = Math.round(img.naturalHeight * scale);
+  const segs = [];
+  const step = SEG_H - SEG_OVERLAP;
+  for (let top = 0; ; top += step) {
+    const bottom = Math.min(h, top + SEG_H);
+    const isFirst = top === 0;
+    const isLast = bottom >= h;
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = bottom - top;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, w, canvas.height);
+    ctx.drawImage(img, 0, -top, w, h);
+    segs.push({
+      data: canvas.toDataURL("image/jpeg", 0.92).split(",")[1],
+      top, bottom, width: w, fullHeight: h,
+      // 겹치는 부분의 말풍선은 한 조각에서만 쓰도록 담당 구역을 나눠요.
+      ownTop: isFirst ? 0 : top + SEG_OVERLAP / 2,
+      ownBottom: isLast ? h : bottom - SEG_OVERLAP / 2,
+    });
+    if (isLast) break;
+  }
+  return segs;
+}
+
+async function analyzeSegment(client, Anthropic, seg) {
+  const known = state.characters.length
+    ? state.characters.map((c) => `- ${c.name}: ${c.description}`).join("\n")
+    : "(아직 없음)";
+  const response = await client.beta.messages.create({
+    model: MODEL,
+    max_tokens: 16000,
+    betas: ["server-side-fallback-2026-07-01"],
+    fallbacks: "default",
+    output_config: {
+      effort: "high",
+      format: { type: "json_schema", schema: SCHEMA },
+    },
+    system: SYSTEM_PROMPT,
+    messages: [{
+      role: "user",
+      content: [
+        { type: "image", source: { type: "base64", media_type: "image/jpeg", data: seg.data } },
+        {
+          type: "text",
+          text: `이 이미지는 세로로 긴 웹툰의 한 조각이에요. 크기는 가로 ${seg.width}px, 세로 ${seg.bottom - seg.top}px예요.\n\n지금까지 나온 등장인물:\n${known}\n\n이 조각의 대사를 읽는 순서대로 뽑아 주세요.`,
+        },
+      ],
+    }],
+  });
+
+  state.usage.input += response.usage?.input_tokens ?? 0;
+  state.usage.output += response.usage?.output_tokens ?? 0;
+
+  if (response.stop_reason === "refusal") {
+    console.warn("Claude가 이 조각 분석을 거절했어요.", response.stop_details);
+    return { characters: [], lines: [] };
+  }
+  const text = response.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+  if (response.stop_reason === "max_tokens") {
+    throw new Error("답변이 너무 길어서 중간에 끊겼어요. 이미지를 더 작게 나눠서 시도해 주세요.");
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("Claude 답변을 읽지 못했어요. 다시 시도해 주세요.");
+  }
+}
+
+function mergeResult(pageIndex, seg, result) {
+  for (const c of result.characters || []) {
+    if (!c.name || c.name === NARRATION || c.name === SFX) continue;
+    if (!state.characters.some((k) => k.name === c.name)) state.characters.push({ name: c.name, description: c.description || "" });
+  }
+  for (const l of result.lines || []) {
+    if (!l.text?.trim()) continue;
+    const segH = seg.bottom - seg.top;
+    const clampX = (v) => Math.max(0, Math.min(seg.width, v));
+    const clampY = (v) => Math.max(0, Math.min(segH, v));
+    const y0 = seg.top + clampY(Math.min(l.box.y0, l.box.y1));
+    const y1 = seg.top + clampY(Math.max(l.box.y0, l.box.y1));
+    const center = (y0 + y1) / 2;
+    if (center < seg.ownTop || center >= seg.ownBottom) continue; // 다른 조각 담당
+    let speaker = l.speaker?.trim() || "인물";
+    if (l.kind === "narration") speaker = NARRATION;
+    if (l.kind === "sfx") speaker = SFX;
+    if (speaker !== NARRATION && speaker !== SFX && !state.characters.some((k) => k.name === speaker)) {
+      state.characters.push({ name: speaker, description: "" });
+    }
+    state.lines.push({
+      page: pageIndex,
+      speaker,
+      text: l.text.trim(),
+      kind: l.kind,
+      box: {
+        x0: clampX(Math.min(l.box.x0, l.box.x1)) / seg.width,
+        x1: clampX(Math.max(l.box.x0, l.box.x1)) / seg.width,
+        y0: y0 / seg.fullHeight,
+        y1: y1 / seg.fullHeight,
+      },
+    });
+  }
+}
+
+// ===== 분석 결과 저장 / 불러오기 =====
+$("exportBtn").addEventListener("click", () => {
+  const data = {
+    format: "webtoon-tts-reader/v1",
+    pages: state.pages.map((p) => ({ name: p.name, width: p.width, height: p.height })),
+    characters: state.characters,
+    voices: state.voices,
+    lines: state.lines.map(({ page, speaker, text, kind, box }) => ({ page, speaker, text, kind, box })),
+  };
+  download("웹툰_분석결과.json", JSON.stringify(data, null, 2), "application/json");
+});
+
+$("importInput").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    if (!Array.isArray(data.lines)) throw new Error("lines 항목이 없어요.");
+    if (!state.pages.length) throw new Error("먼저 같은 웹툰 이미지를 불러와 주세요.");
+    const maxPage = Math.max(0, ...data.lines.map((l) => l.page || 0));
+    if (maxPage >= state.pages.length) throw new Error(`이 결과는 이미지 ${maxPage + 1}장 이상이 필요해요. 지금은 ${state.pages.length}장이에요.`);
+    applyAnalysis(data);
+    setStatus(`분석 결과를 불러왔어요. 대사 ${state.lines.length}개.`, "ok");
+  } catch (err) {
+    setStatus("불러오기 실패: " + err.message, "error");
+  }
+});
+
+function applyAnalysis(data) {
+  stopPlayback(true);
+  state.lines = data.lines.map((l) => ({
+    page: l.page || 0, speaker: l.speaker, text: l.text, kind: l.kind || "dialogue",
+    box: l.box || { x0: 0, y0: 0, x1: 1, y1: 0.01 },
+  }));
+  state.characters = data.characters?.length
+    ? data.characters.map((c) => ({ name: c.name, description: c.description || "" }))
+    : [...new Set(state.lines.map((l) => l.speaker))]
+        .filter((n) => n !== NARRATION && n !== SFX).map((name) => ({ name, description: "" }));
+  if (data.voices) Object.assign(state.voices, data.voices);
+  state.current = -1;
+  renderScript();
+  renderMarkers();
+  renderCharacters();
+  updateButtons();
+}
+
+function download(name, content, type) {
+  const blob = content instanceof Blob ? content : new Blob([content], { type });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// ===== 3. 캐릭터 목소리 =====
+let allVoices = [];
+function refreshVoices() {
+  allVoices = speechSynthesis.getVoices();
+  const ko = allVoices.filter((v) => v.lang?.toLowerCase().startsWith("ko"));
+  $("voiceInfo").textContent = allVoices.length
+    ? `이 브라우저에서 쓸 수 있는 한국어 목소리: ${ko.length}개. 목소리가 적으면 높낮이와 빠르기로 캐릭터를 구분해 보세요.`
+    : "목소리 목록을 불러오는 중이에요…";
+  renderCharacters();
+}
+if ("speechSynthesis" in window) {
+  speechSynthesis.addEventListener("voiceschanged", refreshVoices);
+  refreshVoices();
+} else {
+  $("voiceInfo").textContent = "이 브라우저는 음성 읽기를 지원하지 않아요. 크롬이나 엣지를 써 주세요.";
+}
+
+function koreanVoices() {
+  const ko = allVoices.filter((v) => v.lang?.toLowerCase().startsWith("ko"));
+  return ko.length ? ko : allVoices;
+}
+
+function voiceSettings(name) {
+  let idx = state.characters.findIndex((c) => c.name === name);
+  if (name === NARRATION || name === SFX) idx = -1;
+  if (!state.voices[name]) {
+    state.voices[name] = {
+      voiceURI: "",
+      pitch: idx >= 0 ? PITCHES[idx % PITCHES.length] : 1,
+      rate: name === NARRATION ? 0.95 : 1,
+    };
+  }
+  const v = state.voices[name];
+  // 목소리 목록이 늦게 들어오는 브라우저가 있어서, 비어 있으면 그때 정해요.
+  if (!v.voiceURI) {
+    const list = koreanVoices();
+    const voice = idx >= 0 ? list[idx % Math.max(1, list.length)] : list[0];
+    v.voiceURI = voice?.voiceURI || "";
+  }
+  return v;
+}
+
+function renderCharacters() {
+  const box = $("charList");
+  const names = [...state.characters.map((c) => c.name)];
+  if (state.lines.some((l) => l.speaker === NARRATION)) names.push(NARRATION);
+  if (state.lines.some((l) => l.speaker === SFX)) names.push(SFX);
+  if (!names.length) {
+    box.innerHTML = '<p class="hint">대사를 분석하면 캐릭터가 여기에 나와요.</p>';
+    return;
+  }
+  box.innerHTML = "";
+  const voices = koreanVoices();
+  for (const name of names) {
+    const v = voiceSettings(name);
+    const info = state.characters.find((c) => c.name === name);
+    const count = state.lines.filter((l) => l.speaker === name).length;
+    const card = document.createElement("div");
+    card.className = "char";
+
+    const head = document.createElement("div");
+    head.className = "char-head";
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    dot.style.background = colorOf(name);
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.value = name;
+    nameInput.title = "이름을 바꾸면 이 화자의 모든 대사에 적용돼요";
+    nameInput.disabled = name === NARRATION || name === SFX;
+    nameInput.addEventListener("change", () => renameCharacter(name, nameInput.value.trim()));
+    const preview = document.createElement("button");
+    preview.textContent = "🔊";
+    preview.title = "미리듣기";
+    preview.addEventListener("click", () => {
+      const sample = state.lines.find((l) => l.speaker === name)?.text || "안녕하세요, 반가워요.";
+      stopPlayback(false);
+      speechSynthesis.speak(makeUtterance(name, sample));
+    });
+    head.append(dot, nameInput, preview);
+    card.append(head);
+
+    const desc = document.createElement("div");
+    desc.className = "char-desc";
+    desc.textContent = `${info?.description ? info.description + " · " : ""}대사 ${count}개`;
+    card.append(desc);
+
+    const select = document.createElement("select");
+    for (const voice of voices) {
+      const opt = document.createElement("option");
+      opt.value = voice.voiceURI;
+      opt.textContent = `${voice.name} (${voice.lang})`;
+      if (voice.voiceURI === v.voiceURI) opt.selected = true;
+      select.append(opt);
+    }
+    if (!voices.length) select.innerHTML = "<option>기본 목소리</option>";
+    select.addEventListener("change", () => { v.voiceURI = select.value; });
+    card.append(select);
+
+    card.append(makeSlider("높낮이", 0.1, 2, 0.05, v.pitch, (x) => { v.pitch = x; }));
+    card.append(makeSlider("빠르기", 0.5, 2, 0.05, v.rate, (x) => { v.rate = x; }));
+    box.append(card);
+  }
+}
+
+function makeSlider(label, min, max, step, value, onInput) {
+  const row = document.createElement("div");
+  row.className = "slider";
+  const l = document.createElement("span");
+  l.textContent = label;
+  const input = document.createElement("input");
+  Object.assign(input, { type: "range", min, max, step, value });
+  const out = document.createElement("span");
+  out.textContent = Number(value).toFixed(2);
+  input.addEventListener("input", () => {
+    out.textContent = Number(input.value).toFixed(2);
+    onInput(Number(input.value));
+  });
+  row.append(l, input, out);
+  return row;
+}
+
+function renameCharacter(oldName, newName) {
+  if (!newName || newName === oldName) return renderCharacters();
+  const existing = state.characters.find((c) => c.name === newName);
+  const target = state.characters.find((c) => c.name === oldName);
+  if (existing) {
+    // 같은 이름이 이미 있으면 두 캐릭터를 하나로 합쳐요.
+    state.characters = state.characters.filter((c) => c.name !== oldName);
+  } else if (target) {
+    target.name = newName;
+    state.voices[newName] = state.voices[oldName];
+  }
+  delete state.voices[oldName];
+  state.lines.forEach((l) => { if (l.speaker === oldName) l.speaker = newName; });
+  renderCharacters();
+  renderScript();
+  renderMarkers();
+}
+
+$("readSfx").addEventListener("change", renderScript);
+
+// ===== 4. 재생 + 자동 스크롤 =====
+const speedInput = $("speed");
+speedInput.addEventListener("input", () => {
+  $("speedVal").textContent = Number(speedInput.value).toFixed(1) + "x";
+});
+
+function shouldRead(line) {
+  return line.kind !== "sfx" || $("readSfx").checked;
+}
+
+function makeUtterance(speaker, text) {
+  const v = voiceSettings(speaker);
+  const u = new SpeechSynthesisUtterance(text);
+  const voice = allVoices.find((x) => x.voiceURI === v.voiceURI);
+  if (voice) u.voice = voice;
+  u.lang = voice?.lang || "ko-KR";
+  u.pitch = v.pitch;
+  u.rate = Math.min(10, v.rate * Number(speedInput.value));
+  return u;
+}
+
+$("playBtn").addEventListener("click", () => {
+  if (state.playing) {
+    stopPlayback(false);
+  } else {
+    playFrom(state.current >= 0 ? state.current : 0);
+  }
+});
+$("stopBtn").addEventListener("click", () => {
+  stopPlayback(true);
+  window.scrollTo({ top: 0, behavior: "smooth" });
+});
+
+function setPlayingUI() {
+  $("playBtn").textContent = state.playing ? "⏸ 일시정지" : (state.current > 0 ? "▶ 이어서 재생" : "▶ 재생");
+}
+
+function stopPlayback(reset) {
+  state.gen++;
+  state.playing = false;
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  if (reset) setCurrent(-1, false);
+  setPlayingUI();
+}
+
+function playFrom(i) {
+  if (!("speechSynthesis" in window)) return;
+  stopPlayback(false);
+  state.playing = true;
+  setPlayingUI();
+  speakNext(i, state.gen);
+}
+
+function speakNext(i, gen) {
+  if (gen !== state.gen) return;
+  while (i < state.lines.length && !shouldRead(state.lines[i])) i++;
+  if (i >= state.lines.length) {
+    state.playing = false;
+    setCurrent(-1, false);
+    setPlayingUI();
+    return;
+  }
+  const line = state.lines[i];
+  setCurrent(i, true);
+  const u = makeUtterance(line.speaker, line.text);
+  let done = false;
+  // 브라우저가 끝났다는 신호를 빠뜨려도 멈추지 않게 안전장치를 둬요.
+  const guardMs = (line.text.length * 350) / u.rate + 4000;
+  const timer = setTimeout(advance, guardMs);
+  function advance() {
+    if (done) return;
+    done = true;
+    clearTimeout(timer);
+    if (gen !== state.gen) return;
+    setTimeout(() => speakNext(i + 1, gen), 300);
+  }
+  u.onend = advance;
+  u.onerror = (e) => {
+    if (e.error === "interrupted" || e.error === "canceled") return;
+    advance();
+  };
+  speechSynthesis.speak(u);
+}
+
+function setCurrent(i, scroll) {
+  const prev = state.lines[state.current];
+  prev?.markerEl?.classList.remove("current");
+  prev?.scriptEl?.classList.remove("current");
+  state.current = i;
+  const line = state.lines[i];
+  if (!line) return;
+  line.markerEl?.classList.add("current");
+  line.scriptEl?.classList.add("current");
+  line.scriptEl?.scrollIntoView({ block: "nearest" });
+  if (scroll) scrollToLine(line);
+}
+
+function scrollToLine(line) {
+  const page = state.pages[line.page];
+  if (!page?.el) return;
+  const rect = page.el.getBoundingClientRect();
+  const centerY = rect.top + window.scrollY + rect.height * (line.box.y0 + line.box.y1) / 2;
+  window.scrollTo({ top: centerY - window.innerHeight * 0.4, behavior: "smooth" });
+}
+
+// ===== 5. 정답지 비교 =====
+$("answerInput").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  try {
+    const text = await file.text();
+    setAnswer(parseAnswer(text, file.name), file.name);
+  } catch (err) {
+    $("answerInfo").textContent = "정답지를 읽지 못했어요: " + err.message;
+  }
+});
+
+function parseAnswer(text, name) {
+  if (name.toLowerCase().endsWith(".json") || text.trim().startsWith("{")) {
+    const data = JSON.parse(text);
+    if (!Array.isArray(data.lines)) throw new Error("lines 항목이 없어요.");
+    return data.lines.map((l) => ({ speaker: l.speaker, text: l.text, kind: l.kind || "dialogue" }));
+  }
+  const lines = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const t = raw.trim();
+    if (!t || t.startsWith("#")) continue;
+    const m = t.match(/^([^:：]{1,20})[:：]\s*(.+)$/);
+    if (m) lines.push({ speaker: m[1].trim(), text: m[2].trim(), kind: "dialogue" });
+    else lines.push({ speaker: NARRATION, text: t, kind: "narration" });
+  }
+  if (!lines.length) throw new Error("대사가 한 줄도 없어요.");
+  return lines;
+}
+
+function setAnswer(lines, source) {
+  state.answer = { lines, source };
+  $("answerInfo").textContent = `정답지: ${source} (대사 ${lines.length}개)`;
+  updateButtons();
+}
+
+$("compareBtn").addEventListener("click", () => {
+  const ans = state.answer.lines.filter((l) => l.kind !== "sfx" || $("readSfx").checked);
+  const pred = state.lines.filter((l) => shouldRead(l));
+  renderComparison(compare(ans, pred), ans, pred);
+});
+
+function normalizeText(t) {
+  return (t || "").replace(/[\s\p{P}\p{S}]/gu, "");
+}
+
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[n];
+}
+
+function similarity(a, b) {
+  a = normalizeText(a);
+  b = normalizeText(b);
+  if (!a && !b) return 1;
+  return 1 - levenshtein(a, b) / Math.max(a.length, b.length);
+}
+
+function compare(ans, pred) {
+  // 정답 대사마다 가장 비슷한 분석 대사를 하나씩 짝지어요.
+  const pairs = [];
+  ans.forEach((a, i) => pred.forEach((p, j) => pairs.push({ i, j, s: similarity(a.text, p.text) })));
+  pairs.sort((x, y) => y.s - x.s);
+  const matchOfAns = new Array(ans.length).fill(-1);
+  const simOfAns = new Array(ans.length).fill(0);
+  const usedPred = new Set();
+  for (const { i, j, s } of pairs) {
+    if (s < 0.5) break;
+    if (matchOfAns[i] >= 0 || usedPred.has(j)) continue;
+    matchOfAns[i] = j;
+    simOfAns[i] = s;
+    usedPred.add(j);
+  }
+
+  // 분석 쪽 화자 이름(예: 인물A)을 정답 쪽 이름에 가장 많이 겹치는 것으로 대응시켜요.
+  const votes = {};
+  ans.forEach((a, i) => {
+    const j = matchOfAns[i];
+    if (j < 0) return;
+    const p = pred[j].speaker;
+    votes[p] ??= {};
+    votes[p][a.speaker] = (votes[p][a.speaker] || 0) + 1;
+  });
+  const mapping = {};
+  for (const [p, v] of Object.entries(votes)) {
+    mapping[p] = Object.entries(v).sort((x, y) => y[1] - x[1])[0][0];
+  }
+  const speakerOk = ans.map((a, i) => matchOfAns[i] >= 0 && mapping[pred[matchOfAns[i]].speaker] === a.speaker);
+
+  // 순서: 짝지어진 대사들이 정답 순서를 얼마나 지키는지 (최장 증가 부분수열)
+  const seq = matchOfAns.filter((j) => j >= 0);
+  const tails = [];
+  for (const x of seq) {
+    let lo = 0, hi = tails.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (tails[mid] < x) lo = mid + 1; else hi = mid; }
+    tails[lo] = x;
+  }
+  const n = ans.length || 1;
+  return {
+    matchOfAns, simOfAns, speakerOk, mapping,
+    found: seq.length / n,
+    textScore: simOfAns.reduce((s, x) => s + x, 0) / n,
+    speakerScore: speakerOk.filter(Boolean).length / n,
+    orderScore: seq.length ? tails.length / seq.length : 0,
+    extra: pred.length - usedPred.size,
+  };
+}
+
+function renderComparison(r, ans, pred) {
+  const pct = (x) => Math.round(x * 100) + "%";
+  const box = $("compareResult");
+  box.innerHTML = "";
+  const score = document.createElement("div");
+  score.className = "score";
+  score.innerHTML =
+    `찾은 대사: <b>${pct(r.found)}</b> (${r.matchOfAns.filter((j) => j >= 0).length}/${ans.length})<br>` +
+    `글자 정확도: <b>${pct(r.textScore)}</b><br>` +
+    `화자 정확도: <b>${pct(r.speakerScore)}</b><br>` +
+    `읽는 순서: <b>${pct(r.orderScore)}</b><br>` +
+    `정답에 없는 대사: <b>${r.extra}</b>개`;
+  box.append(score);
+  const mapText = Object.entries(r.mapping).filter(([a, b]) => a !== b).map(([a, b]) => `${a} → ${b}`).join(", ");
+  if (mapText) {
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.textContent = "화자 이름 대응: " + mapText;
+    box.append(p);
+  }
+  const table = document.createElement("table");
+  table.className = "cmp";
+  table.innerHTML = "<tr><th>#</th><th>정답</th><th>분석 결과</th><th>화자</th></tr>";
+  ans.forEach((a, i) => {
+    const j = r.matchOfAns[i];
+    const tr = document.createElement("tr");
+    const cells = [
+      String(i + 1),
+      `${a.speaker}: ${a.text}`,
+      j >= 0 ? `${pred[j].speaker}: ${pred[j].text} (${pct(r.simOfAns[i])})` : "❌ 못 찾음",
+      j >= 0 ? (r.speakerOk[i] ? "✅" : "❌") : "-",
+    ];
+    for (const c of cells) {
+      const td = document.createElement("td");
+      td.textContent = c;
+      tr.append(td);
+    }
+    table.append(tr);
+  });
+  box.append(table);
+}
+
+// ===== 샘플 웹툰 만들기 (저작권 걱정 없는 테스트용) =====
+const FONT = "'Noto Sans KR','Malgun Gothic','Apple SD Gothic Neo',sans-serif";
+
+const SAMPLE = [
+  [
+    { bg: "#e8f4ff", chars: [["민지", 560]], items: [
+      ["narration", NARRATION, "토요일 아침, 민지네 집", 30, 24],
+      ["dialogue", "민지", "준호 오빠! 빨리 일어나!", 250, 110],
+    ] },
+    { bg: "#f3ecff", chars: [["준호", 200], ["민지", 600]], items: [
+      ["dialogue", "준호", "으음… 오 분만 더…", 40, 30],
+      ["dialogue", "민지", "할머니 댁 가기로 했잖아!", 400, 110],
+    ] },
+    { bg: "#fff1e6", chars: [["준호", 400]], items: [
+      ["thought", "준호", "아 맞다, 오늘이었지.", 240, 50],
+    ] },
+    { bg: "#eaf7ea", chars: [["할머니", 420]], items: [
+      ["narration", NARRATION, "한 시간 뒤, 할머니 댁", 30, 24],
+      ["dialogue", "할머니", "아이고, 우리 강아지들 왔구나!", 330, 100],
+    ] },
+    { bg: "#fdeef4", chars: [["민지", 220], ["준호", 580]], items: [
+      ["dialogue", "민지", "할머니, 보고 싶었어요!", 40, 30],
+      ["dialogue", "준호", "저도요!", 520, 120],
+    ] },
+  ],
+  [
+    { bg: "#fff8e1", chars: [["할머니", 200], ["준호", 600]], items: [
+      ["dialogue", "할머니", "배고프지? 부침개 해 놨다.", 30, 30],
+      ["dialogue", "준호", "와, 냄새 진짜 좋다!", 430, 120],
+    ] },
+    { bg: "#e8f4ff", chars: [["민지", 420]], items: [
+      ["dialogue", "민지", "오빠, 혼자 다 먹으면 안 돼!", 200, 40],
+    ] },
+    { bg: "#f3ecff", chars: [["준호", 200], ["할머니", 600]], items: [
+      ["dialogue", "준호", "알았어, 반씩 나눠 먹자.", 30, 30],
+      ["dialogue", "할머니", "많이 있으니까 싸우지들 마라.", 400, 120],
+    ] },
+    { bg: "#fff1e6", chars: [], pan: true, items: [
+      ["sfx", SFX, "지글지글", 90, 120],
+      ["narration", NARRATION, "그날 오후는 유난히 따뜻했다.", 330, 300],
+    ] },
+    { bg: "#eaf7ea", chars: [["민지", 220], ["할머니", 600]], items: [
+      ["dialogue", "민지", "할머니, 다음 주에 또 올게요.", 30, 30],
+      ["dialogue", "할머니", "그래, 조심히 가거라.", 440, 120],
+    ] },
+  ],
+];
+
+const PAGE_W = 800, PANEL_H = 440, GAP = 40, MARGIN = 20;
+const HEAD_Y = 285; // 패널 안에서 얼굴 중심 높이
+
+$("sampleBtn").addEventListener("click", async () => {
+  if (document.fonts?.ready) await document.fonts.ready;
+  const pages = [];
+  const answerLines = [];
+  SAMPLE.forEach((panels, pi) => {
+    const h = panels.length * PANEL_H + (panels.length + 1) * GAP;
+    const canvas = document.createElement("canvas");
+    canvas.width = PAGE_W;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, PAGE_W, h);
+    panels.forEach((panel, k) => {
+      const top = GAP + k * (PANEL_H + GAP);
+      ctx.fillStyle = panel.bg;
+      ctx.fillRect(MARGIN, top, PAGE_W - MARGIN * 2, PANEL_H);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(MARGIN, top, PAGE_W - MARGIN * 2, PANEL_H);
+      ctx.clip();
+      for (const [who, x] of panel.chars) drawCharacter(ctx, who, x, top + HEAD_Y);
+      if (panel.pan) drawPan(ctx, 400, top + 230);
+      ctx.restore();
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = "#222";
+      ctx.strokeRect(MARGIN, top, PAGE_W - MARGIN * 2, PANEL_H);
+      for (const [kind, who, text, x, y] of panel.items) {
+        const charX = panel.chars.find((c) => c[0] === who)?.[1];
+        const target = charX != null ? { x: charX, y: top + HEAD_Y - 40 } : null;
+        const b = drawTextItem(ctx, kind, text, x, top + y, target);
+        answerLines.push({
+          page: pi, speaker: who, text, kind,
+          box: { x0: b.x0 / PAGE_W, y0: b.y0 / h, x1: b.x1 / PAGE_W, y1: b.y1 / h },
+        });
+      }
+    });
+    pages.push({
+      name: `샘플_${String(pi + 1).padStart(2, "0")}.png`,
+      src: canvas.toDataURL("image/png"),
+      width: PAGE_W,
+      height: h,
+    });
+  });
+  state.sampleAnswer = answerLines;
+  setPages(pages);
+  setStatus("샘플 웹툰을 만들었어요. API 키를 넣고 분석하거나, '정답지로 바로 듣기'로 목소리부터 들어 보세요.", "ok");
+});
+
+$("useAnswerBtn").addEventListener("click", () => {
+  if (!state.sampleAnswer) return;
+  applyAnalysis({ lines: state.sampleAnswer });
+  setStatus("정답지를 그대로 불러왔어요 (API 사용 안 함). ▶ 재생을 눌러 보세요.", "ok");
+});
+
+$("downloadAnswerBtn").addEventListener("click", () => {
+  if (!state.sampleAnswer) return;
+  const data = {
+    format: "webtoon-tts-reader/v1",
+    pages: state.pages.map((p) => ({ name: p.name, width: p.width, height: p.height })),
+    lines: state.sampleAnswer,
+  };
+  download("샘플_정답지.json", JSON.stringify(data, null, 2), "application/json");
+});
+
+function wrapText(ctx, text, maxW) {
+  const words = text.split(" ");
+  const lines = [];
+  let cur = "";
+  for (const w of words) {
+    const test = cur ? cur + " " + w : w;
+    if (ctx.measureText(test).width <= maxW) { cur = test; continue; }
+    if (cur) lines.push(cur);
+    if (ctx.measureText(w).width <= maxW) { cur = w; continue; }
+    cur = "";
+    for (const ch of w) {
+      if (ctx.measureText(cur + ch).width > maxW) { lines.push(cur); cur = ch; } else cur += ch;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+function drawTextItem(ctx, kind, text, x, y, target) {
+  if (kind === "sfx") {
+    ctx.save();
+    ctx.font = `900 64px ${FONT}`;
+    ctx.fillStyle = "#f97316";
+    ctx.strokeStyle = "#7c2d12";
+    ctx.lineWidth = 5;
+    ctx.textBaseline = "top";
+    const w = ctx.measureText(text).width;
+    ctx.translate(x, y);
+    ctx.rotate(-0.12);
+    ctx.strokeText(text, 0, 0);
+    ctx.fillText(text, 0, 0);
+    ctx.restore();
+    return { x0: x - 5, y0: y - w * 0.12 - 5, x1: x + w + 5, y1: y + 75 };
+  }
+  const fontSize = 26, lh = 36, pad = 20;
+  ctx.font = `700 ${fontSize}px ${FONT}`;
+  const lines = wrapText(ctx, text, 300);
+  const tw = Math.max(...lines.map((l) => ctx.measureText(l).width));
+  const w = tw + pad * 2;
+  const h = lines.length * lh + pad * 2 - (lh - fontSize);
+  const x0 = Math.min(x, PAGE_W - MARGIN - 10 - w);
+
+  ctx.save();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "#222";
+  if (kind === "narration") {
+    ctx.fillStyle = "#fff6c8";
+    ctx.fillRect(x0, y, w, h);
+    ctx.strokeRect(x0, y, w, h);
+  } else {
+    ctx.fillStyle = "#fff";
+    if (target && kind === "dialogue") {
+      // 말풍선 꼬리
+      const bx = Math.max(x0 + 30, Math.min(x0 + w - 30, target.x));
+      ctx.beginPath();
+      ctx.moveTo(bx - 16, y + h - 4);
+      ctx.lineTo(target.x, Math.min(target.y, y + h + 60));
+      ctx.lineTo(bx + 16, y + h - 4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+    if (target && kind === "thought") {
+      // 생각 풍선 꼬리 (작은 동그라미)
+      const sx = x0 + w / 2, sy = y + h;
+      [[0.3, 10], [0.6, 7], [0.85, 5]].forEach(([t, r]) => {
+        ctx.beginPath();
+        ctx.arc(sx + (target.x - sx) * t, sy + (target.y - 30 - sy) * t + 10, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      });
+    }
+    ctx.beginPath();
+    ctx.roundRect(x0, y, w, h, kind === "thought" ? h / 2 : 28);
+    ctx.fill();
+    if (kind === "thought") ctx.setLineDash([8, 6]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.fillStyle = "#111";
+  ctx.textBaseline = "top";
+  ctx.textAlign = "center";
+  lines.forEach((l, i) => ctx.fillText(l, x0 + w / 2, y + pad + i * lh));
+  ctx.restore();
+  return { x0, y0: y, x1: x0 + w, y1: y + h };
+}
+
+function drawCharacter(ctx, who, cx, cy) {
+  const looks = {
+    "민지":   { skin: "#ffd9c2", hair: "#5b3a29", shirt: "#f472b6", long: true },
+    "준호":   { skin: "#f1c27d", hair: "#111", shirt: "#3b82f6", spiky: true },
+    "할머니": { skin: "#f5d0b5", hair: "#d1d5db", shirt: "#8b5cf6", bun: true, glasses: true },
+  }[who];
+  ctx.save();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "#222";
+  // 몸
+  ctx.fillStyle = looks.shirt;
+  ctx.beginPath();
+  ctx.roundRect(cx - 70, cy + 60, 140, 140, 40);
+  ctx.fill();
+  ctx.stroke();
+  // 긴 머리 (뒤)
+  if (looks.long) {
+    ctx.fillStyle = looks.hair;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 20, 72, 95, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // 얼굴
+  ctx.fillStyle = looks.skin;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 58, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  // 머리카락 (앞)
+  ctx.fillStyle = looks.hair;
+  if (looks.spiky) {
+    ctx.beginPath();
+    ctx.moveTo(cx - 60, cy - 10);
+    for (let k = 0; k <= 6; k++) {
+      const px = cx - 60 + k * 20;
+      ctx.lineTo(px - 10, cy - 70 - (k % 2) * 18);
+      ctx.lineTo(px, cy - 40);
+    }
+    ctx.lineTo(cx + 60, cy - 10);
+    ctx.closePath();
+    ctx.fill();
+  } else {
+    ctx.beginPath();
+    ctx.arc(cx, cy - 8, 60, Math.PI * 1.05, Math.PI * 1.95);
+    ctx.fill();
+  }
+  if (looks.bun) {
+    ctx.beginPath();
+    ctx.arc(cx, cy - 72, 24, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+  // 눈, 입
+  ctx.fillStyle = "#222";
+  ctx.beginPath();
+  ctx.arc(cx - 20, cy + 5, 5, 0, Math.PI * 2);
+  ctx.arc(cx + 20, cy + 5, 5, 0, Math.PI * 2);
+  ctx.fill();
+  if (looks.glasses) {
+    ctx.beginPath();
+    ctx.arc(cx - 20, cy + 5, 14, 0, Math.PI * 2);
+    ctx.moveTo(cx + 34, cy + 5);
+    ctx.arc(cx + 20, cy + 5, 14, 0, Math.PI * 2);
+    ctx.moveTo(cx - 6, cy + 5);
+    ctx.lineTo(cx + 6, cy + 5);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.arc(cx, cy + 25, 14, 0.15 * Math.PI, 0.85 * Math.PI);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawPan(ctx, cx, cy) {
+  ctx.save();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = "#222";
+  ctx.fillStyle = "#374151";
+  ctx.fillRect(cx + 120, cy - 8, 160, 16);
+  ctx.beginPath();
+  ctx.ellipse(cx, cy, 140, 60, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#facc15";
+  ctx.beginPath();
+  ctx.ellipse(cx, cy - 5, 110, 42, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+</script>
+</body>
+</html>
